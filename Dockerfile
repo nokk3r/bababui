@@ -3,6 +3,7 @@ FROM python:3.12-slim-bookworm AS bins
 ARG TARGETARCH
 ARG XRAY_VERSION=26.10.29
 ARG HYSTERIA_VERSION=2.13.0
+ARG SPEEDTEST_VERSION=1.8.3
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl unzip \
@@ -10,8 +11,8 @@ RUN apt-get update \
 
 RUN set -eux; \
     case "$TARGETARCH" in \
-      amd64) XARCH=64; HARCH=amd64 ;; \
-      arm64) XARCH=arm64-v8a; HARCH=arm64 ;; \
+      amd64) XARCH=64; HARCH=amd64; STARCH=x86_64 ;; \
+      arm64) XARCH=arm64-v8a; HARCH=arm64; STARCH=arm64 ;; \
       *) echo "unsupported arch: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     curl -fsSL --retry 3 -o /tmp/xray.zip \
@@ -21,9 +22,14 @@ RUN set -eux; \
     curl -fsSL --retry 3 -o /usr/local/bin/hysteria \
       "https://github.com/apernet/hysteria/releases/download/app/v${HYSTERIA_VERSION}/hysteria-linux-${HARCH}"; \
     chmod 755 /usr/local/bin/hysteria; \
+    curl -fsSL --retry 3 -o /tmp/speedtest.tgz \
+      "https://github.com/showwin/speedtest-go/releases/download/v${SPEEDTEST_VERSION}/speedtest-go_${SPEEDTEST_VERSION}_Linux_${STARCH}.tar.gz"; \
+    tar -xzf /tmp/speedtest.tgz -C /tmp speedtest-go; \
+    install -m 755 /tmp/speedtest-go /usr/local/bin/speedtest-go; \
     xray version; \
     hysteria version; \
-    hysteria client --help >/dev/null
+    hysteria client --help >/dev/null; \
+    speedtest-go --version
 
 FROM python:3.12-slim-bookworm
 
@@ -35,6 +41,7 @@ RUN apt-get update \
 
 COPY --from=bins /usr/local/bin/xray /usr/local/bin/xray
 COPY --from=bins /usr/local/bin/hysteria /usr/local/bin/hysteria
+COPY --from=bins /usr/local/bin/speedtest-go /usr/local/bin/speedtest-go
 
 WORKDIR /app
 COPY requirements.txt .
@@ -49,7 +56,7 @@ RUN chmod 755 /usr/local/bin/docker-entrypoint.sh \
 ENV DATA_DIR=/data \
     XRAY_BIN=/usr/local/bin/xray \
     HYSTERIA_BIN=/usr/local/bin/hysteria \
-    CURL_BIN=/usr/bin/curl \
+    SPEEDTEST_BIN=/usr/local/bin/speedtest-go \
     PYTHONUNBUFFERED=1
 
 EXPOSE 8080

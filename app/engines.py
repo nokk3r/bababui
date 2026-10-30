@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -18,10 +19,13 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.config import CURL_BIN, DATA_DIR, HYSTERIA_BIN, XRAY_BIN
+from app.config import HYSTERIA_BIN, SPEEDTEST_BIN, XRAY_BIN
 from app.parser import ParsedNode
 
-SUCCESS_BYTES = 4096
+logger = logging.getLogger("checker.engines")
+
+# Пинг, список серверов и оба направления. Дольше — процесс убивается.
+SPEEDTEST_TIMEOUT = 120
 
 
 @dataclass
@@ -93,7 +97,7 @@ def binary_status() -> dict:
     return {
         "xray": describe_binary(XRAY_BIN, ["version"]),
         "hysteria": describe_binary(HYSTERIA_BIN, ["version"]),
-        "curl_socks": curl_has_socks(),
+        "speedtest": describe_binary(SPEEDTEST_BIN, ["--version"]),
     }
 
 
@@ -110,20 +114,6 @@ def describe_binary(path: str, args: list[str]) -> dict:
         if line.lower().startswith("version:"):
             return {"ok": True, "text": "Hysteria " + line.split(":", 1)[1].strip()}
     return {"ok": True, "text": lines[0] if lines else path}
-
-
-def curl_has_socks() -> bool:
-    try:
-        proc = subprocess.run(
-            [CURL_BIN, "-sS", "--max-time", "2", "--proxy", "socks5h://127.0.0.1:9", "http://127.0.0.1:9"],
-            capture_output=True,
-            text=True,
-            timeout=4,
-        )
-    except Exception:
-        return False
-    err = (proc.stderr or "").lower()
-    return "not supported" not in err and "unsupported" not in err
 
 
 def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeResult:
@@ -185,138 +175,41 @@ def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeRes
 
 
 def measure(port: int, settings: dict, cancel: CancelToken, secrets: list[str]) -> ProbeResult:
-    result = ProbeResult()
-    errors: list[str] = []
-    latency, latency_error = probe_latency(port, settings, cancel, secrets)
-    result.latency_ms = latency
-    if latency is None:
-        errors.append(latency_error or "нет отклика")
-        result.error = "; ".join(errors)
-        return result
-    if settings.get("measure_download", True):
-        if cancel.cancelled:
-            result.error = "остановлено"
-            return result
-        speed, size, error = probe_transfer(
-            port,
-            download_target(settings),
-            int(settings["download_seconds"]),
-            upload_path=None,
-            cancel=cancel,
-            secrets=secrets,
-        )
-        result.download_bps = speed
-        result.download_bytes = size
-        if speed is None:
-            errors.append("входящая: " + (error or "нет данных"))
-    if settings.get("measure_upload", True):
-        if cancel.cancelled:
-            result.error = "остановлено"
-            return result
-        upload = ensure_upload_file(int(settings["upload_bytes"]))
-        speed, size, error = probe_transfer(
-            port,
-            settings["upload_url"],
-            int(settings["upload_seconds"]),
-            upload_path=upload,
-            cancel=cancel,
-            secrets=secrets,
-        )
-        result.upload_bps = speed
-        result.upload_bytes = size
-        if speed is None:
-            errors.append("исходящая: " + (error or "нет данных"))
-    result.ok = not errors and not cancel.cancelled
-    result.error = "остановлено" if cancel.cancelled else "; ".join(errors)
+    if cancel.cancelled:
+        return ProbeResult(error="остановлено")
+    # net/http принимает только socks5 и socks5h. Оба отдают имя сервера прокси,
+    # так что DNS и сам замер идут через узел. Схема socks:// клиент не понимает.
+    cmd = [
+        SPEEDTEST_BIN,
+        "--json",
+        "--ping-mode=http",
+        f"--proxy=socks5h://127.0.0.1:{port}",
+    ]
+    if not settings.get("measure_download", True):
+        cmd.append("--no-download")
+    if not settings.get("measure_upload", True):
+        cmd.append("--no-upload")
+    code, stdout, error = run_speedtest(cmd, cancel, secrets)
+    if cancel.cancelled:
+        return ProbeResult(error="остановлено")
+    payload = speedtest_payload(stdout)
+    if payload is None:
+        return ProbeResult(error=error or "speedtest не вернул результат")
+    result = speedtest_result(
+        payload,
+        measure_download=bool(settings.get("measure_download", True)),
+        measure_upload=bool(settings.get("measure_upload", True)),
+    )
+    if code != 0 and result.ok:
+        result.ok = False
+        result.error = error or f"speedtest завершился с кодом {code}"
+    if cancel.cancelled:
+        result.ok = False
+        result.error = "остановлено"
     return result
 
 
-def probe_latency(port: int, settings: dict, cancel: CancelToken, secrets: list[str]) -> tuple[float | None, str]:
-    last_error = "нет отклика"
-    for attempt in range(2):
-        if cancel.cancelled:
-            return None, "остановлено"
-        if attempt:
-            time.sleep(0.4)
-        code, metrics, error = curl(
-            port,
-            settings["latency_url"],
-            seconds=12,
-            upload_path=None,
-            cancel=cancel,
-            secrets=secrets,
-        )
-        if metrics and http_ok(metrics["code"]) and (metrics["start"] > 0 or metrics["total"] > 0):
-            elapsed = metrics["start"] or metrics["total"]
-            return round(elapsed * 1000, 1), ""
-        last_error = humanize_curl(error) or f"код {code}"
-    return None, last_error
-
-
-def probe_transfer(
-    port: int,
-    url: str,
-    seconds: int,
-    upload_path: Path | None,
-    cancel: CancelToken,
-    secrets: list[str],
-) -> tuple[float | None, int | None, str]:
-    code, metrics, error = curl(port, url, seconds=seconds, upload_path=upload_path, cancel=cancel, secrets=secrets)
-    if metrics is None:
-        return None, None, error or "curl не вернул результат"
-    if upload_path is None:
-        size = int(metrics["down_size"])
-        speed = metrics["down_speed"]
-    else:
-        size = int(metrics["up_size"])
-        speed = metrics["up_speed"]
-    timed_out = code == 28
-    if size >= SUCCESS_BYTES and speed > 0 and (http_ok(metrics["code"]) or timed_out):
-        return speed, size, ""
-    return None, size or None, humanize_curl(error) or f"мало данных ({size} байт, HTTP {metrics['code']})"
-
-
-def curl(
-    port: int,
-    url: str,
-    seconds: int,
-    upload_path: Path | None,
-    cancel: CancelToken,
-    secrets: list[str],
-) -> tuple[int, dict | None, str]:
-    if cancel.cancelled:
-        return 1, None, "остановлено"
-    cmd = [
-        CURL_BIN,
-        "-sS",
-        "--proxy",
-        f"socks5h://127.0.0.1:{port}",
-        "--connect-timeout",
-        "8",
-        "--max-time",
-        str(seconds),
-        "-o",
-        os.devnull,
-        "-w",
-        "%{http_code} %{time_starttransfer} %{time_total} %{size_download} %{speed_download} %{size_upload} %{speed_upload}",
-    ]
-    if upload_path is not None:
-        cmd.extend(
-            [
-                "-X",
-                "POST",
-                "-H",
-                "Content-Type: application/octet-stream",
-                "-H",
-                "Expect:",
-                "--data-binary",
-                f"@{upload_path}",
-            ]
-        )
-    else:
-        cmd.append("-L")
-        cmd.extend(["--max-redirs", "3"])
-    cmd.append(url)
+def run_speedtest(cmd: list[str], cancel: CancelToken, secrets: list[str]) -> tuple[int, str, str]:
     env = os.environ.copy()
     env["LC_ALL"] = "C"
     for key in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
@@ -329,37 +222,103 @@ def curl(
         env=env,
     )
     if not cancel.track(proc):
-        return 1, None, "остановлено"
+        return 1, "", "остановлено"
     try:
-        out, err = proc.communicate(timeout=seconds + 8)
+        out, err = proc.communicate(timeout=SPEEDTEST_TIMEOUT)
     except subprocess.TimeoutExpired:
         proc.kill()
         out, err = proc.communicate()
+        cancel.untrack(proc)
+        return proc.returncode or 1, (out or b"").decode("utf-8", "replace"), "таймаут speedtest"
     finally:
         cancel.untrack(proc)
-    metrics = parse_metrics((out or b"").decode("utf-8", "replace"))
-    error = scrub((err or b"").decode("utf-8", "replace"), secrets)
-    error = short_curl_error(error)
-    return proc.returncode or 0, metrics, error
+    stdout = (out or b"").decode("utf-8", "replace")
+    error = speedtest_error(scrub((err or b"").decode("utf-8", "replace"), secrets))
+    return proc.returncode or 0, stdout, error
 
 
-def parse_metrics(text: str) -> dict | None:
-    parts = text.strip().split()
-    if len(parts) < 7:
+def speedtest_payload(stdout: str) -> dict | None:
+    text = stdout.strip()
+    start = text.find("{")
+    if start < 0:
         return None
-    code, start, total, down_size, down_speed, up_size, up_speed = parts[-7:]
     try:
-        return {
-            "code": code,
-            "start": float(start),
-            "total": float(total),
-            "down_size": float(down_size),
-            "down_speed": float(down_speed),
-            "up_size": float(up_size),
-            "up_speed": float(up_speed),
-        }
-    except ValueError:
+        payload = json.loads(text[start:])
+    except json.JSONDecodeError:
         return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def speedtest_result(payload: dict, measure_download: bool, measure_upload: bool) -> ProbeResult:
+    servers = payload.get("servers") or []
+    if not isinstance(servers, list) or not servers or not isinstance(servers[0], dict):
+        return ProbeResult(error="speedtest не нашёл сервер")
+    server = servers[0]
+    result = ProbeResult()
+    errors: list[str] = []
+    result.latency_ms = duration_ms(server.get("latency"))
+    if result.latency_ms is None:
+        errors.append("нет отклика")
+    duration = server.get("test_duration") if isinstance(server.get("test_duration"), dict) else {}
+    if measure_download:
+        speed = positive_rate(server.get("dl_speed"))
+        result.download_bps = speed
+        result.download_bytes = transferred_bytes(speed, duration.get("download"))
+        if speed is None:
+            errors.append("входящая: нет данных")
+    if measure_upload:
+        speed = positive_rate(server.get("ul_speed"))
+        result.upload_bps = speed
+        result.upload_bytes = transferred_bytes(speed, duration.get("upload"))
+        if speed is None:
+            errors.append("исходящая: нет данных")
+    result.ok = not errors
+    result.error = "; ".join(errors)
+    logger.info(
+        "speedtest %s id=%s latency_ms=%s down_bps=%s up_bps=%s",
+        server.get("sponsor") or server.get("name") or "?",
+        server.get("id") or "",
+        result.latency_ms,
+        result.download_bps,
+        result.upload_bps,
+    )
+    return result
+
+
+def duration_ms(value) -> float | None:
+    """time.Duration в JSON speedtest-go — наносекунды."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    milliseconds = float(value) / 1_000_000
+    if milliseconds > 60_000:
+        return None
+    return round(milliseconds, 1)
+
+
+def positive_rate(value) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return float(value)
+
+
+def transferred_bytes(rate: float | None, duration_ns) -> int | None:
+    if rate is None or isinstance(duration_ns, bool) or not isinstance(duration_ns, (int, float)):
+        return None
+    if duration_ns <= 0:
+        return None
+    return int(rate * (float(duration_ns) / 1_000_000_000))
+
+
+def speedtest_error(text: str) -> str:
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        line = re.sub(r"^(Error:|error:)\s*", "", line)
+        return line[:240]
+    return ""
 
 
 def relax_unverified_tls(outbound: dict) -> None:
@@ -478,28 +437,6 @@ def yaml_scalar(value) -> str:
     return f'"{text}"'
 
 
-def download_target(settings: dict) -> str:
-    base = str(settings["download_url"]).strip()
-    nbytes = int(settings["download_bytes"])
-    if "{bytes}" in base:
-        return base.format(bytes=nbytes)
-    if "bytes=" in base:
-        return base
-    joiner = "&" if "?" in base else "?"
-    return f"{base}{joiner}bytes={nbytes}"
-
-
-def ensure_upload_file(size: int) -> Path:
-    # Разреженный файл из нулей: место на диске почти не занимает.
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    path = DATA_DIR / "upload.bin"
-    if not path.exists() or path.stat().st_size != size:
-        with path.open("wb") as handle:
-            handle.truncate(size)
-        os.chmod(path, 0o600)
-    return path
-
-
 def launch(cmd: list[str], cancel: CancelToken) -> tuple[subprocess.Popen, LogBuffer]:
     proc = subprocess.Popen(
         cmd,
@@ -548,43 +485,7 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def http_ok(code: str) -> bool:
-    try:
-        number = int(code)
-    except ValueError:
-        return False
-    return 200 <= number < 400
-
-
-def short_curl_error(text: str) -> str:
-    for line in reversed(text.splitlines()):
-        line = line.strip()
-        if not line:
-            continue
-        if line.lower().startswith("curl:"):
-            line = line.split(")", 1)[-1].strip()
-        return line[:240]
-    return ""
-
-
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
-
-
-def humanize_curl(text: str) -> str:
-    lowered = text.lower()
-    mapping = (
-        ("ssl connection timeout", "таймаут TLS через туннель"),
-        ("operation timed out", "таймаут соединения"),
-        ("connection timed out", "таймаут соединения"),
-        ("connection refused", "соединение отклонено"),
-        ("could not resolve host", "не удалось разрешить имя"),
-        ("proxy connect", "прокси оборвал соединение"),
-        ("empty reply", "пустой ответ сервера"),
-    )
-    for needle, label in mapping:
-        if needle in lowered:
-            return label
-    return text
 
 
 def useful_error(text: str) -> str:

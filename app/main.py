@@ -45,13 +45,6 @@ class SettingsIn(BaseModel):
     scheduler_enabled: bool
     interval_minutes: int = Field(ge=1, le=1440)
     concurrency: int = Field(ge=1, le=4)
-    download_seconds: int = Field(ge=3, le=60)
-    upload_seconds: int = Field(ge=3, le=60)
-    download_bytes: int = Field(ge=1_000_000, le=2_000_000_000)
-    upload_bytes: int = Field(ge=1_000_000, le=2_000_000_000)
-    download_url: str
-    upload_url: str
-    latency_url: str
     tls_insecure_if_no_sni: bool
     refresh_before_run: bool
     measure_download: bool
@@ -66,14 +59,6 @@ class SettingsIn(BaseModel):
             if item and not item.lower().startswith(("http://", "https://")):
                 raise ValueError("ссылка должна начинаться с http:// или https://")
         return value.strip()
-
-    @field_validator("download_url", "upload_url", "latency_url")
-    @classmethod
-    def http_url(cls, value: str) -> str:
-        value = value.strip()
-        if not value.lower().startswith(("http://", "https://")):
-            raise ValueError("адрес должен начинаться с http:// или https://")
-        return value
 
 
 class RunIn(BaseModel):
@@ -153,11 +138,6 @@ def state(request: Request):
     public = db.public_settings(raw)
     nodes = db.list_nodes()
     enabled = [node for node in nodes if node["active"] and node["supported"] and node["enabled"]]
-    per_node = 0
-    if public["measure_download"]:
-        per_node += public["download_bytes"]
-    if public["measure_upload"]:
-        per_node += public["upload_bytes"]
     next_at = request.app.state.scheduler.next_at
     runs = db.list_runs(1)
     return {
@@ -170,7 +150,6 @@ def state(request: Request):
         "versions": request.app.state.versions,
         "enabled_count": len(enabled),
         "node_count": sum(1 for node in nodes if node["active"]),
-        "estimate_bytes": per_node * len(enabled),
         "interval_minutes": public["interval_minutes"],
         "last_run": runs[0] if runs else None,
     }

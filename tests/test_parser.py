@@ -2,7 +2,7 @@ import base64
 import json
 import unittest
 
-from app.engines import download_target, pin_tls_settings, render_hysteria_config
+from app.engines import pin_tls_settings, render_hysteria_config, speedtest_result
 from app.parser import parse_link, parse_subscription
 
 UUID = "11111111-1111-1111-1111-111111111111"
@@ -140,13 +140,33 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(tls["pinnedPeerCertSha256"], "abc")
         self.assertEqual(tls["fingerprint"], "chrome")
 
-    def test_download_target(self):
-        url = download_target({"download_url": "https://speed.cloudflare.com/__down", "download_bytes": 8000000})
-        self.assertEqual(url, "https://speed.cloudflare.com/__down?bytes=8000000")
-        kept = download_target(
-            {"download_url": "https://example.test/file?bytes=10", "download_bytes": 8000000}
-        )
-        self.assertEqual(kept, "https://example.test/file?bytes=10")
+    def test_speedtest_result_uses_bytes_per_second(self):
+        payload = {
+            "servers": [
+                {
+                    "id": "12",
+                    "sponsor": "Example",
+                    "latency": 20_500_000,
+                    "dl_speed": 1_250_000,
+                    "ul_speed": 500_000,
+                    "test_duration": {"download": 10_000_000_000, "upload": 8_000_000_000},
+                }
+            ]
+        }
+        result = speedtest_result(payload, measure_download=True, measure_upload=True)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.latency_ms, 20.5)
+        self.assertEqual(result.download_bps, 1_250_000)
+        self.assertEqual(result.upload_bps, 500_000)
+        self.assertEqual(result.download_bytes, 12_500_000)
+        self.assertEqual(result.upload_bytes, 4_000_000)
+
+    def test_speedtest_result_skips_disabled_direction(self):
+        payload = {"servers": [{"latency": 15_000_000, "dl_speed": 100, "ul_speed": 0}]}
+        result = speedtest_result(payload, measure_download=False, measure_upload=True)
+        self.assertIsNone(result.download_bps)
+        self.assertFalse(result.ok)
+        self.assertIn("исходящая", result.error)
 
 
 if __name__ == "__main__":

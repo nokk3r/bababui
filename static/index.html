@@ -196,7 +196,7 @@
                   <label for="concurrency">Одновременно узлов</label>
                   <span class="hint" tabindex="0">
                     <span class="hint-mark" aria-hidden="true">?</span>
-                    <span class="hint-bubble" role="tooltip">Один узел за раз даёт более честную цифру: параллельные проверки делят один канал. Объём — потолок передачи. На быстром узле проверка заканчивается раньше лимита времени, скорость всё равно считается по фактически переданным данным.</span>
+                    <span class="hint-bubble" role="tooltip">Один узел за раз даёт более честную цифру: параллельные проверки делят один канал.</span>
                   </span>
                 </span>
                 <input id="concurrency" type="number" min="1" max="4" step="1">
@@ -209,31 +209,12 @@
 
             <section class="settings-pane" data-settings-pane="check" hidden>
               <h2>Проверка</h2>
-              <p class="settings-lead">Как мерить скорость и куда ходить через узел.</p>
-              <div class="group" data-gate="measure_download">
-                <h3>Входящая скорость</h3>
-                <p class="card-note">Сколько скачать через узел, чтобы посчитать скорость.</p>
-                <label>Лимит, секунды<input id="download_seconds" type="number" min="3" max="60" step="1"></label>
-                <label>Объём, МБ<input id="download_mb" type="number" min="1" max="2000" step="0.5"></label>
-                <label class="check"><input id="measure_download" type="checkbox"> Измерять входящую скорость</label>
-              </div>
-              <div class="group" data-gate="measure_upload">
-                <h3>Исходящая скорость</h3>
-                <p class="card-note">Сколько отдать через узел, чтобы посчитать скорость.</p>
-                <label>Лимит, секунды<input id="upload_seconds" type="number" min="3" max="60" step="1"></label>
-                <label>Объём, МБ<input id="upload_mb" type="number" min="1" max="2000" step="0.5"></label>
-                <label class="check"><input id="measure_upload" type="checkbox"> Измерять исходящую скорость</label>
-              </div>
+              <p class="settings-lead">Скорость меряет speedtest.net через SOCKS узла.</p>
               <div class="group">
-                <h3>Адреса</h3>
-                <p class="card-note">Куда ходить через проверяемый узел.</p>
-                <label for="latency_url">Отклик</label>
-                <input id="latency_url" type="url" spellcheck="false">
-                <label for="download_url">Входящая скорость</label>
-                <input id="download_url" type="url" spellcheck="false">
-                <label for="upload_url">Исходящая скорость</label>
-                <input id="upload_url" type="url" spellcheck="false">
-                <p class="muted">К адресу входящей добавляется <code>?bytes=</code>, если его там ещё нет. Запросы идут через SOCKS проверяемого узла.</p>
+                <h3>Что измерять</h3>
+                <p class="card-note">Отклик — HTTP-пинг. Входящая и исходящая идут отдельными этапами. Сервер speedtest.net выбирается по адресу выхода узла. Объём заранее не известен и зависит от скорости канала.</p>
+                <label class="check"><input id="measure_download" type="checkbox"> Измерять входящую скорость</label>
+                <label class="check"><input id="measure_upload" type="checkbox"> Измерять исходящую скорость</label>
               </div>
               <p class="estimate"></p>
               <button type="submit" class="primary">Сохранить</button>

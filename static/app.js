@@ -336,13 +336,14 @@ function renderStatus() {
   const versions = remote.versions || {};
   if (versions.xray && versions.xray.ok === false) messages.push(`Xray: ${versions.xray.text}`);
   if (versions.hysteria && versions.hysteria.ok === false) messages.push(`Hysteria2: ${versions.hysteria.text}`);
-  if (versions.curl_socks === false) messages.push("curl в контейнере собран без SOCKS, замер не заработает");
+  if (versions.speedtest && versions.speedtest.ok === false) messages.push(`speedtest: ${versions.speedtest.text}`);
   $("banner").hidden = messages.length === 0;
   $("banner").textContent = messages.join(" ");
   const versionBits = [
-    `xray-checker ${versions.app || "0.1.0"}`,
+    `xray-checker ${versions.app || "0.2.0"}`,
     versions.xray?.text,
     versions.hysteria?.text,
+    versions.speedtest?.text,
   ].filter(Boolean);
   $("versions").textContent = versionBits.join("\n");
   const quota = remote.userinfo;
@@ -489,17 +490,10 @@ function fillForm(settings) {
   $("tls_insecure_if_no_sni").checked = Boolean(settings.tls_insecure_if_no_sni);
   $("interval_minutes").value = settings.interval_minutes;
   $("concurrency").value = settings.concurrency;
-  $("download_seconds").value = settings.download_seconds;
-  $("upload_seconds").value = settings.upload_seconds;
-  $("download_mb").value = settings.download_bytes / 1e6;
-  $("upload_mb").value = settings.upload_bytes / 1e6;
   $("retention_days").value = settings.retention_days;
   $("scheduler_enabled").checked = Boolean(settings.scheduler_enabled);
   $("measure_download").checked = Boolean(settings.measure_download);
   $("measure_upload").checked = Boolean(settings.measure_upload);
-  $("latency_url").value = settings.latency_url || "";
-  $("download_url").value = settings.download_url || "";
-  $("upload_url").value = settings.upload_url || "";
   syncGroups();
   renderEstimate();
 }
@@ -512,30 +506,20 @@ function collectForm() {
     tls_insecure_if_no_sni: $("tls_insecure_if_no_sni").checked,
     interval_minutes: Number($("interval_minutes").value),
     concurrency: Number($("concurrency").value),
-    download_seconds: Number($("download_seconds").value),
-    upload_seconds: Number($("upload_seconds").value),
-    download_bytes: Math.round(Number($("download_mb").value) * 1e6),
-    upload_bytes: Math.round(Number($("upload_mb").value) * 1e6),
     retention_days: Number($("retention_days").value),
     scheduler_enabled: $("scheduler_enabled").checked,
     measure_download: $("measure_download").checked,
     measure_upload: $("measure_upload").checked,
-    latency_url: $("latency_url").value.trim(),
-    download_url: $("download_url").value.trim(),
-    upload_url: $("upload_url").value.trim(),
   };
 }
 
 function renderEstimate() {
   const enabled = state.nodes.filter((node) => node.active && node.supported && node.enabled).length;
-  const down = $("measure_download").checked ? Number($("download_mb").value) || 0 : 0;
-  const up = $("measure_upload").checked ? Number($("upload_mb").value) || 0 : 0;
-  const interval = Number($("interval_minutes").value) || 120;
-  const perRun = enabled * (down + up) * 1e6;
-  const perDay = perRun * ((24 * 60) / interval);
-  const perMonth = perDay * 30;
+  const parts = ["отклик"];
+  if ($("measure_download").checked) parts.push("входящая");
+  if ($("measure_upload").checked) parts.push("исходящая");
   const text = enabled
-    ? `${formatBytes(perRun)} за прогон · ${formatBytes(perDay)} в сутки · ${formatBytes(perMonth)} в месяц`
+    ? `В замере: ${parts.join(", ")}. Объём за прогон зависит от скорости канала.`
     : "Нет включённых узлов.";
   document.querySelectorAll(".estimate").forEach((el) => {
     el.textContent = text;

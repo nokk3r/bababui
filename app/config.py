@@ -2,11 +2,11 @@ import logging
 import os
 from pathlib import Path
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data")).resolve()
 XRAY_BIN = os.environ.get("XRAY_BIN", "xray")
 HYSTERIA_BIN = os.environ.get("HYSTERIA_BIN", "hysteria")
-CURL_BIN = os.environ.get("CURL_BIN", "curl")
+SPEEDTEST_BIN = os.environ.get("SPEEDTEST_BIN", "speedtest-go")
 WEB_PASSWORD = os.environ.get("WEB_PASSWORD", "")
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
