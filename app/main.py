@@ -9,6 +9,7 @@ import io
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -33,8 +34,9 @@ def require_auth(authorization: str | None = Header(default=None)) -> None:
         return
     token = ""
     if authorization and authorization.lower().startswith("bearer "):
-        token = authorization[7:].strip()
-    if len(token) != len(WEB_PASSWORD) or not hmac.compare_digest(token, WEB_PASSWORD):
+        # Заголовок не несёт кириллицу, поэтому браузер шлёт пароль в percent-кодировке.
+        token = unquote(authorization[7:].strip())
+    if not hmac.compare_digest(token.encode(), WEB_PASSWORD.encode()):
         raise HTTPException(status_code=401, detail="Нужен пароль")
 
 
@@ -271,6 +273,7 @@ def export_csv():
             "upload_bps",
             "ok",
             "error",
+            "alive",
         ]
     )
     for row in db.export_rows():
@@ -290,6 +293,7 @@ def export_csv():
                 "" if up is None else round(up, 1),
                 row["ok"],
                 row["error"],
+                "" if row["alive"] is None else row["alive"],
             ]
         )
     return Response(
@@ -301,7 +305,7 @@ def export_csv():
 
 @app.get("/favicon.ico")
 def favicon():
-    return Response(status_code=204)
+    return FileResponse(STATIC_DIR / "icons" / "favicon.ico", media_type="image/x-icon")
 
 
 @app.get("/")

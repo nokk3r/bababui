@@ -3,10 +3,10 @@ services:
     image: nokk3r/bababui:0.2.0
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${BIND_HOST:-127.0.0.1}:${PORT:-8080}:8080"
     environment:
       DATA_DIR: /data
-      WEB_PASSWORD: ""
+      WEB_PASSWORD: ${WEB_PASSWORD:?Задайте WEB_PASSWORD}
       LOG_LEVEL: WARNING
     volumes:
       - bababui-data:/data

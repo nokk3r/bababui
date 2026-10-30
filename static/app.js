@@ -76,7 +76,7 @@ function esc(value) {
 function authHeaders() {
   const headers = {};
   const token = sessionStorage.getItem("token");
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) headers.Authorization = `Bearer ${encodeURIComponent(token)}`;
   return headers;
 }
 
@@ -385,6 +385,17 @@ function withAverages(nodes) {
   });
 }
 
+function resultDot(ok, alive) {
+  if (ok) return "ok";
+  return alive ? "warn" : "bad";
+}
+
+function nodeDot(node) {
+  if (!node.supported) return "bad";
+  if (node.last_ok == null) return "idle";
+  return resultDot(node.last_ok, node.last_alive);
+}
+
 function renderTable() {
   const tbody = document.querySelector("#nodes tbody");
   applyColumns();
@@ -409,7 +420,7 @@ function renderTable() {
   tbody.innerHTML = rows.map((node) => {
     const history = state.series.get(node.id) || [];
     const series = history.slice(-24).map((row) => row.download_bps);
-    const dot = !node.supported ? "bad" : node.last_ok === true ? "ok" : node.last_ok === false ? "bad" : "idle";
+    const dot = nodeDot(node);
     const tested = node.last_tested_at ? formatTime(node.last_tested_at) : "";
     return `<tr data-id="${esc(node.id)}" class="${node.enabled ? "" : "is-off"} ${node.active ? "" : "is-gone"}">
       <td data-col="name">
@@ -448,7 +459,7 @@ function renderSubscription() {
     return;
   }
   tbody.innerHTML = rows.map((node) => {
-    const dot = !node.supported ? "bad" : node.last_ok === true ? "ok" : node.last_ok === false ? "bad" : "idle";
+    const dot = nodeDot(node);
     const note = node.active ? `${node.address}:${node.port}` : "нет в подписке";
     return `<tr data-id="${esc(node.id)}" class="${node.enabled ? "" : "is-off"} ${node.active ? "" : "is-gone"}">
       <td>
@@ -799,7 +810,7 @@ async function openRun(id, article) {
       <tbody>${rows.map((row) => `<tr>
         <td>
           <div class="name">
-            <b><i class="dot ${row.ok ? "ok" : "bad"}"></i>${esc(row.name)}</b>
+            <b><i class="dot ${resultDot(row.ok, row.alive)}"></i>${esc(row.name)}</b>
             <span class="sub">${esc(row.tested_at ? formatTime(row.tested_at) : "")}</span>
           </div>
         </td>

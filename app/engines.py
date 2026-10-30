@@ -24,8 +24,17 @@ from app.parser import ParsedNode
 
 logger = logging.getLogger("checker.engines")
 
-# Пинг, список серверов и оба направления. Дольше — процесс убивается.
+# Пинг, список серверов и одно направление. Дольше — процесс убивается.
 SPEEDTEST_TIMEOUT = 120
+# Не зависят от speedtest.net: отвечают — значит, узел пропускает трафик.
+TRAFFIC_URLS = (
+    "https://www.gstatic.com/generate_204",
+    "https://cp.cloudflare.com/generate_204",
+)
+TRAFFIC_TIMEOUT = 8
+
+_ports_lock = threading.Lock()
+_ports_taken: set[int] = set()
 
 
 @dataclass
@@ -37,6 +46,8 @@ class ProbeResult:
     upload_bytes: int | None = None
     ok: bool = False
     error: str = ""
+    # True — трафик идёт, False — не идёт, None — до проверки трафика не дошли.
+    alive: bool | None = None
 
 
 @dataclass
@@ -121,10 +132,10 @@ def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeRes
         return ProbeResult(error="остановлено")
     if not node.supported or not node.engine:
         return ProbeResult(error=node.reason or "протокол не поддерживается")
-    port = free_port()
     work = Path(tempfile.mkdtemp(prefix="xraychk-"))
     proc: subprocess.Popen | None = None
     logs = LogBuffer()
+    port = reserve_port()
     try:
         if node.engine == "xray":
             outbound = copy.deepcopy(node.xray_outbound or {})
@@ -171,12 +182,51 @@ def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeRes
     finally:
         if proc is not None:
             stop_process(proc, cancel)
+        release_port(port)
         shutil.rmtree(work, ignore_errors=True)
 
 
 def measure(port: int, settings: dict, cancel: CancelToken, secrets: list[str]) -> ProbeResult:
     if cancel.cancelled:
         return ProbeResult(error="остановлено")
+    download = bool(settings.get("measure_download", True))
+    upload = bool(settings.get("measure_upload", True))
+    # JSON приходит только в конце запуска. Отдельные запуски не дают таймауту забрать готовое.
+    steps = [(True, False), (False, True)] if download and upload else [(download, upload)]
+    total = ProbeResult()
+    errors: list[str] = []
+    server_id = ""
+    alive = True
+    for step_download, step_upload in steps:
+        step, server_id = measure_step(port, step_download, step_upload, server_id, cancel, secrets)
+        if cancel.cancelled:
+            return ProbeResult(error="остановлено")
+        merge_step(total, step)
+        if step.ok:
+            continue
+        if step.error not in errors:
+            errors.append(step.error)
+        alive = traffic_passes(port, cancel)
+        if cancel.cancelled:
+            return ProbeResult(error="остановлено")
+        if not alive:
+            break
+    total.ok = not errors
+    total.alive = alive
+    if errors:
+        prefix = "speedtest" if alive else "узел не пропускает трафик"
+        total.error = f"{prefix}: {'; '.join(errors)}"
+    return total
+
+
+def measure_step(
+    port: int,
+    download: bool,
+    upload: bool,
+    server_id: str,
+    cancel: CancelToken,
+    secrets: list[str],
+) -> tuple[ProbeResult, str]:
     # net/http принимает только socks5 и socks5h. Оба отдают имя сервера прокси,
     # так что DNS и сам замер идут через узел. Схема socks:// клиент не понимает.
     cmd = [
@@ -185,41 +235,84 @@ def measure(port: int, settings: dict, cancel: CancelToken, secrets: list[str]) 
         "--ping-mode=http",
         f"--proxy=socks5h://127.0.0.1:{port}",
     ]
-    if not settings.get("measure_download", True):
+    if server_id:
+        cmd.append(f"--server={server_id}")
+    if not download:
         cmd.append("--no-download")
-    if not settings.get("measure_upload", True):
+    if not upload:
         cmd.append("--no-upload")
     code, stdout, error = run_speedtest(cmd, cancel, secrets)
-    if cancel.cancelled:
-        return ProbeResult(error="остановлено")
     payload = speedtest_payload(stdout)
     if payload is None:
-        return ProbeResult(error=error or "speedtest не вернул результат")
-    result = speedtest_result(
-        payload,
-        measure_download=bool(settings.get("measure_download", True)),
-        measure_upload=bool(settings.get("measure_upload", True)),
-    )
+        return ProbeResult(error=error or "speedtest не вернул результат"), server_id
+    result = speedtest_result(payload, measure_download=download, measure_upload=upload)
     if code != 0 and result.ok:
         result.ok = False
         result.error = error or f"speedtest завершился с кодом {code}"
-    if cancel.cancelled:
-        result.ok = False
-        result.error = "остановлено"
-    return result
+    return result, speedtest_server_id(payload) or server_id
 
 
-def run_speedtest(cmd: list[str], cancel: CancelToken, secrets: list[str]) -> tuple[int, str, str]:
+def merge_step(total: ProbeResult, step: ProbeResult) -> None:
+    if total.latency_ms is None:
+        total.latency_ms = step.latency_ms
+    if step.download_bps is not None:
+        total.download_bps = step.download_bps
+        total.download_bytes = step.download_bytes
+    if step.upload_bps is not None:
+        total.upload_bps = step.upload_bps
+        total.upload_bytes = step.upload_bytes
+
+
+def traffic_passes(port: int, cancel: CancelToken) -> bool:
+    for url in TRAFFIC_URLS:
+        cmd = [
+            "curl",
+            "-sS",
+            "-o",
+            "/dev/null",
+            "--max-time",
+            str(TRAFFIC_TIMEOUT),
+            "--socks5-hostname",
+            f"127.0.0.1:{port}",
+            url,
+        ]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            env=clean_env(),
+        )
+        if not cancel.track(proc):
+            return False
+        try:
+            if proc.wait(timeout=TRAFFIC_TIMEOUT + 2) == 0:
+                return True
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        finally:
+            cancel.untrack(proc)
+        if cancel.cancelled:
+            return False
+    return False
+
+
+def clean_env() -> dict[str, str]:
     env = os.environ.copy()
     env["LC_ALL"] = "C"
     for key in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         env.pop(key, None)
+    return env
+
+
+def run_speedtest(cmd: list[str], cancel: CancelToken, secrets: list[str]) -> tuple[int, str, str]:
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
-        env=env,
+        env=clean_env(),
     )
     if not cancel.track(proc):
         return 1, "", "остановлено"
@@ -249,6 +342,13 @@ def speedtest_payload(stdout: str) -> dict | None:
     if not isinstance(payload, dict):
         return None
     return payload
+
+
+def speedtest_server_id(payload: dict) -> str:
+    servers = payload.get("servers")
+    if not isinstance(servers, list) or not servers or not isinstance(servers[0], dict):
+        return ""
+    return str(servers[0].get("id") or "")
 
 
 def speedtest_result(payload: dict, measure_download: bool, measure_upload: bool) -> ProbeResult:
@@ -332,12 +432,21 @@ def relax_unverified_tls(outbound: dict) -> None:
         return
     address, port = dial_target(outbound)
     server_name = str(tls.get("serverName") or address)
-    alpn = list(tls.get("alpn") or [])
+    alpn = [item for item in (tls.get("alpn") or []) if item != "h3"]
     try:
         digest = fetch_cert_sha256(address, port, server_name, alpn)
     except Exception as exc:
+        if runs_over_udp(stream):
+            # Снимок идёт по TCP, у такого узла TCP-порта может не быть. Сертификат проверит Xray.
+            tls.pop("allowInsecure", None)
+            return
         raise RuntimeError(f"не удалось прочитать сертификат {address}:{port}: {exc}") from exc
     pin_tls_settings(outbound, digest)
+
+
+def runs_over_udp(stream: dict) -> bool:
+    alpn = (stream.get("tlsSettings") or {}).get("alpn") or []
+    return stream.get("network") == "kcp" or (bool(alpn) and set(alpn) == {"h3"})
 
 
 def pin_tls_settings(outbound: dict, digest: str) -> None:
@@ -483,6 +592,21 @@ def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def reserve_port() -> int:
+    """Порт свободен только до bind в прокси. Резерв не даёт двум проверкам получить один порт."""
+    while True:
+        port = free_port()
+        with _ports_lock:
+            if port not in _ports_taken:
+                _ports_taken.add(port)
+                return port
+
+
+def release_port(port: int) -> None:
+    with _ports_lock:
+        _ports_taken.discard(port)
 
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")

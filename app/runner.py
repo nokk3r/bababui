@@ -136,6 +136,11 @@ class Runner:
                     self._publish(current, ok_count, fail_count)
                     try:
                         probe = await self._probe(row, settings, token)
+                        if token.cancelled and not probe.ok:
+                            # Прерванный замер ничего не говорит об узле.
+                            current.discard(row["name"])
+                            self._publish(current, ok_count, fail_count)
+                            return
                         db.insert_result(run_id, row["id"], probe)
                     except Exception as exc:
                         logger.exception("node failed %s", row["name"])

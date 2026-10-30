@@ -24,28 +24,32 @@ class Scheduler:
 
     async def loop(self) -> None:
         while not self._stop:
-            settings = db.public_settings()
-            if not settings["scheduler_enabled"] or self.runner.busy():
-                self.next_at = None
-            else:
-                self.next_at = next_run_at()
-                if time.time() >= self.next_at:
-                    try:
-                        await self.runner.begin_and_wait("schedule")
-                    except Exception:
-                        logger.exception("scheduled run failed")
-                    self.next_at = next_run_at()
+            await self.tick()
             await asyncio.sleep(1)
+
+    async def tick(self) -> None:
+        settings = db.public_settings()
+        if not settings["scheduler_enabled"] or not settings["subscription_url"] or self.runner.busy():
+            self.next_at = None
+            return
+        self.next_at = next_run_at()
+        if time.time() >= self.next_at:
+            db.set_meta("last_schedule_at", db.utcnow())
+            try:
+                await self.runner.begin_and_wait("schedule")
+            except Exception:
+                logger.exception("scheduled run failed")
+            self.next_at = next_run_at()
 
 
 def next_run_at() -> float:
     interval = max(1, int(db.public_settings()["interval_minutes"])) * 60
-    runs = db.list_runs(1)
+    last = db.last_scheduled_at()
     now = time.time()
-    if not runs or not runs[0].get("started_at"):
+    if not last:
         return now + 8
     try:
-        started = datetime.strptime(runs[0]["started_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        started = datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     except ValueError:
         return now + 8
     return started.timestamp() + interval

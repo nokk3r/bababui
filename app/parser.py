@@ -15,6 +15,9 @@ URI_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Xray убрал эти транспорты: такой конфиг не запустится.
+REMOVED_NETWORKS = {"http": "HTTP/2", "quic": "QUIC"}
+
 DEFAULT_PORTS = {
     "vless": 443,
     "vmess": 443,
@@ -67,6 +70,7 @@ class ParsedNode:
     secrets: list[str] = field(default_factory=list, repr=False)
     xray_outbound: dict | None = field(default=None, repr=False)
     hysteria: dict | None = field(default=None, repr=False)
+    legacy_id: str = ""
 
 
 def parse_subscription(text: str, *, insecure_if_no_sni: bool = True) -> list[ParsedNode]:
@@ -623,6 +627,10 @@ def _node(
     badges: list[str] | None = None,
     extra: str = "",
 ) -> ParsedNode:
+    removed = REMOVED_NETWORKS.get(transport.network)
+    if supported and removed:
+        supported = False
+        reason = f"транспорт {removed} удалён из Xray"
     extra_id = extra or "|".join(
         [
             transport.network,
@@ -631,8 +639,14 @@ def _node(
             transport.service_name,
         ]
     )
+    legacy_id = make_id(protocol, host, port, transport.network, secret, extra_id)
+    identity = [transport.sni, transport.host, transport.public_key, transport.short_id, transport.flow]
+    node_id = legacy_id
+    if any(identity):
+        node_id = make_id(protocol, host, port, transport.network, secret, "|".join([extra_id, *identity]))
     return ParsedNode(
-        id=make_id(protocol, host, port, transport.network, secret, extra_id),
+        id=node_id,
+        legacy_id=legacy_id,
         name=normalize_name(name, protocol, host, port),
         protocol=protocol,
         address=host,

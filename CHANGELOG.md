@@ -1,5 +1,37 @@
 # Changelog
 
+## Не выпущено
+
+### RU
+
+- `docker-compose.prod.yml` публикует порт на `127.0.0.1` и не стартует без `WEB_PASSWORD`. Адрес и порт задаются через `BIND_HOST` и `PORT`.
+- Несколько ссылок подписки в разных форматах загружаются полностью.
+- Узлы с разным SNI, host, ключами REALITY или flow больше не склеиваются. История и галочка переносятся на новый id.
+- Расписание считается только от проверок по расписанию. Ручная проверка и очистка истории его не сдвигают.
+- Без ссылки подписки расписание не запускается.
+- Остановленный замер не записывается в результаты узла.
+- Пароль интерфейса может содержать не-ASCII символы.
+- Сбой speedtest отделён от мёртвого узла: при неудачном замере трафик проверяется отдельным запросом, такой узел отмечается жёлтым. В результаты и CSV добавлено поле `alive`.
+- Входящая и исходящая скорость меряются отдельными запусками на одном сервере, поэтому таймаут одного направления не стирает другое.
+- Параллельные проверки не могут получить один локальный порт.
+- Узлы с TLS поверх UDP (kcp, xhttp с h3) без снимка сертификата проверяются средствами Xray.
+- Узлы с транспортами HTTP/2 и QUIC помечаются неподдерживаемыми: Xray их удалил.
+
+### EN
+
+- `docker-compose.prod.yml` publishes the port on `127.0.0.1` and refuses to start without `WEB_PASSWORD`. Set the address and port with `BIND_HOST` and `PORT`.
+- Several subscription links in different formats now load in full.
+- Nodes that differ by SNI, host, REALITY keys, or flow are no longer merged. History and the enabled flag move to the new id.
+- The schedule counts only from scheduled runs. Manual checks and clearing history no longer shift it.
+- The schedule does not run without a subscription link.
+- A cancelled measurement is not recorded in the node's results.
+- The interface password may contain non-ASCII characters.
+- A speedtest failure is now separate from a dead node: after a failed measurement, traffic is checked with a separate request, and such a node is marked yellow. Results and CSV gain an `alive` field.
+- Download and upload run separately on the same server, so a timeout in one direction no longer wipes the other.
+- Parallel checks can no longer get the same local port.
+- Nodes with TLS over UDP (kcp, xhttp with h3) that have no certificate snapshot are verified by Xray.
+- Nodes using the HTTP/2 and QUIC transports are marked unsupported because Xray removed them.
+
 ## 0.2.0 — 2026-10-30
 
 ### RU

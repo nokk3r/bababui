@@ -50,6 +50,7 @@ COPY app ./app
 COPY static ./static
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod 755 /usr/local/bin/docker-entrypoint.sh \
+    && chmod -R a+rX /app/static \
     && mkdir -p /data \
     && chown checker:checker /data
 

@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 
 from app import db
-from app.parser import parse_subscription
+from app.parser import decode_subscription, parse_subscription
 
 logger = logging.getLogger("checker.subscription")
 _lock = threading.Lock()
@@ -34,7 +34,8 @@ def refresh() -> int:
         try:
             for url in urls:
                 body, header = fetch(url, insecure=insecure)
-                chunks.append(body)
+                # Склеенный base64 не декодируется: у каждой подписки свой формат и паддинг.
+                chunks.append(decode_subscription(body))
                 if header:
                     userinfo = header
             nodes = parse_subscription("\n".join(chunks), insecure_if_no_sni=insecure_sni)

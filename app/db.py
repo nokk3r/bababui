@@ -22,6 +22,7 @@ DEFAULTS: dict[str, str] = {
     "subscription_userinfo": "",
     "last_refresh_at": "",
     "last_refresh_error": "",
+    "last_schedule_at": "",
 }
 
 BOOL_KEYS = {
@@ -114,12 +115,16 @@ def init_db() -> None:
                 download_bytes INTEGER,
                 upload_bytes INTEGER,
                 ok INTEGER NOT NULL,
-                error TEXT NOT NULL DEFAULT ''
+                error TEXT NOT NULL DEFAULT '',
+                alive INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_results_node ON results(node_id, tested_at);
             CREATE INDEX IF NOT EXISTS idx_results_run ON results(run_id);
             """
         )
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(results)")}
+        if "alive" not in columns:
+            conn.execute("ALTER TABLE results ADD COLUMN alive INTEGER")
         for key, value in DEFAULTS.items():
             conn.execute(
                 "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO NOTHING",
@@ -189,10 +194,12 @@ def set_meta(key: str, value: str) -> None:
 def sync_nodes(nodes: list) -> int:
     now = utcnow()
     ids: list[str] = []
+    current = {node.id for node in nodes}
     with connect() as conn:
         for node in nodes:
             ids.append(node.id)
             badges = json.dumps(node.badges, ensure_ascii=False)
+            _adopt_legacy_id(conn, node, current)
             existing = conn.execute("SELECT id, enabled FROM nodes WHERE id=?", (node.id,)).fetchone()
             if existing:
                 conn.execute(
@@ -249,12 +256,24 @@ def sync_nodes(nodes: list) -> int:
     return len(nodes)
 
 
+def _adopt_legacy_id(conn: sqlite3.Connection, node, current: set[str]) -> None:
+    """Раньше id не учитывал SNI и ключи. Узел забирает галочку и историю старой записи."""
+    legacy = node.legacy_id
+    if not legacy or legacy == node.id or legacy in current:
+        return
+    if conn.execute("SELECT 1 FROM nodes WHERE id=?", (node.id,)).fetchone():
+        return
+    cur = conn.execute("UPDATE nodes SET id=? WHERE id=?", (node.id, legacy))
+    if cur.rowcount:
+        conn.execute("UPDATE results SET node_id=? WHERE node_id=?", (node.id, legacy))
+
+
 def list_nodes() -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
             """
             SELECT n.*,
-                   r.latency_ms, r.download_bps, r.upload_bps, r.ok AS last_ok,
+                   r.latency_ms, r.download_bps, r.upload_bps, r.ok AS last_ok, r.alive AS last_alive,
                    r.error AS last_error, r.tested_at AS last_tested_at
             FROM nodes n
             LEFT JOIN results r ON r.id = (
@@ -337,8 +356,8 @@ def insert_result(run_id: int, node_id: str, probe) -> None:
             """
             INSERT INTO results(
                 run_id, node_id, tested_at, latency_ms, download_bps, upload_bps,
-                download_bytes, upload_bytes, ok, error
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                download_bytes, upload_bytes, ok, error, alive
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -351,6 +370,7 @@ def insert_result(run_id: int, node_id: str, probe) -> None:
                 probe.upload_bytes,
                 1 if probe.ok else 0,
                 (probe.error or "")[:500],
+                None if probe.alive is None else int(probe.alive),
             ),
         )
 
@@ -364,6 +384,18 @@ def list_runs(limit: int = 40) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def last_scheduled_at() -> str:
+    """Старт прошлой проверки по расписанию. Настройка переживает очистку истории."""
+    saved = get_raw_settings()["last_schedule_at"]
+    if saved:
+        return saved
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT started_at FROM runs WHERE trigger='schedule' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    return row["started_at"] if row else ""
+
+
 def get_run(run_id: int) -> dict | None:
     with connect() as conn:
         run = conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
@@ -372,7 +404,7 @@ def get_run(run_id: int) -> dict | None:
         results = conn.execute(
             """
             SELECT r.tested_at, r.latency_ms, r.download_bps, r.upload_bps,
-                   r.download_bytes, r.upload_bytes, r.ok, r.error,
+                   r.download_bytes, r.upload_bytes, r.ok, r.error, r.alive,
                    n.name, n.protocol, n.address, n.port, n.id AS node_id
             FROM results r
             JOIN nodes n ON n.id = r.node_id
@@ -418,7 +450,7 @@ def export_rows() -> list[sqlite3.Row]:
         return conn.execute(
             """
             SELECT r.tested_at, n.name, n.protocol, n.address, n.port,
-                   r.latency_ms, r.download_bps, r.upload_bps, r.ok, r.error
+                   r.latency_ms, r.download_bps, r.upload_bps, r.ok, r.error, r.alive
             FROM results r
             JOIN nodes n ON n.id = r.node_id
             ORDER BY r.tested_at ASC
@@ -461,6 +493,7 @@ def _node_row(row: sqlite3.Row) -> dict:
         "download_bps": row["download_bps"],
         "upload_bps": row["upload_bps"],
         "last_ok": None if row["last_ok"] is None else bool(row["last_ok"]),
+        "last_alive": None if row["last_alive"] is None else bool(row["last_alive"]),
         "last_error": row["last_error"] or "",
         "last_tested_at": row["last_tested_at"],
     }
