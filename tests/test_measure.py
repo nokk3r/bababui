@@ -9,6 +9,7 @@ from unittest import mock
 
 from app import db, engines
 from app.engines import CancelToken, ProbeResult, measure, relax_unverified_tls
+from app.i18n import msg
 from app.parser import parse_link
 
 UUID = "11111111-1111-1111-1111-111111111111"
@@ -47,17 +48,17 @@ class MeasureTests(unittest.TestCase):
         traffic.assert_not_called()
 
     def test_upload_timeout_keeps_download(self):
-        result, _, _ = run_measure([(0, payload(download=100), ""), (1, "", "таймаут speedtest")])
+        result, _, _ = run_measure([(0, payload(download=100), ""), (1, "", msg("speedtest_timeout"))])
         self.assertFalse(result.ok)
         self.assertTrue(result.alive)
         self.assertEqual(result.download_bps, 100)
-        self.assertEqual(result.error, "speedtest: таймаут speedtest")
+        self.assertEqual(result.error, f"speedtest: {msg('speedtest_timeout')}")
 
     def test_dead_node_stops_after_first_step(self):
         result, runs, _ = run_measure([(1, "", "connection refused")], alive=False)
         self.assertFalse(result.ok)
         self.assertIs(result.alive, False)
-        self.assertEqual(result.error, "узел не пропускает трафик: connection refused")
+        self.assertEqual(result.error, f"{msg('node_no_traffic')}: connection refused")
         self.assertEqual(runs.call_count, 1)
 
     def test_single_direction_is_one_run(self):
@@ -168,13 +169,21 @@ class UdpTlsTests(unittest.TestCase):
         self.assertEqual(outbound["streamSettings"]["tlsSettings"]["pinnedPeerCertSha256"], "ab")
 
 
+class BinaryVersionTests(unittest.TestCase):
+    def test_speedtest_version_drops_build_time(self):
+        output = "speedtest-go v1.8.3 git-df849ca built at 2026-09-01T06:42:03Z\n"
+        with mock.patch("app.engines.subprocess.check_output", return_value=output):
+            status = engines.describe_binary("speedtest-go", ["--version"])
+        self.assertEqual(status, {"ok": True, "text": "speedtest-go v1.8.3 git-df849ca"})
+
+
 class RemovedTransportTests(unittest.TestCase):
     def test_http_and_quic_are_unsupported_and_keep_id(self):
         for network in ("h2", "http", "quic"):
             node = parse_link(f"vless://{UUID}@1.1.1.1:443?security=tls&type={network}&sni=a.com#x")
             self.assertFalse(node.supported)
             self.assertEqual(node.engine, "")
-            self.assertIn("удалён", node.reason)
+            self.assertIn("transport_removed", node.reason)
 
 
 if __name__ == "__main__":

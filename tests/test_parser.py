@@ -166,7 +166,7 @@ class ParserTests(unittest.TestCase):
         result = speedtest_result(payload, measure_download=False, measure_upload=True)
         self.assertIsNone(result.download_bps)
         self.assertFalse(result.ok)
-        self.assertIn("исходящая", result.error)
+        self.assertIn("no_upload_data", result.error)
 
 
 if __name__ == "__main__":

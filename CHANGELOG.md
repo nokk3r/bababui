@@ -4,6 +4,7 @@
 
 ### RU
 
+- Интерфейс теперь на английском по умолчанию, русский включается переключателем языка. Строки вынесены в `static/locales`, ошибки бэкенда переводятся в браузере. Столбец `error` в CSV теперь на английском.
 - `docker-compose.prod.yml` публикует порт на `127.0.0.1` и не стартует без `WEB_PASSWORD`. Адрес и порт задаются через `BIND_HOST` и `PORT`.
 - Несколько ссылок подписки в разных форматах загружаются полностью.
 - Узлы с разным SNI, host, ключами REALITY или flow больше не склеиваются. История и галочка переносятся на новый id.
@@ -19,6 +20,7 @@
 
 ### EN
 
+- The interface is now English by default, with Russian available from the language switcher. Strings live in `static/locales`, and backend errors are translated in the browser. The CSV `error` column is now in English.
 - `docker-compose.prod.yml` publishes the port on `127.0.0.1` and refuses to start without `WEB_PASSWORD`. Set the address and port with `BIND_HOST` and `PORT`.
 - Several subscription links in different formats now load in full.
 - Nodes that differ by SNI, host, REALITY keys, or flow are no longer merged. History and the enabled flag move to the new id.

@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 
 from app import db
+from app.i18n import msg
 from app.parser import decode_subscription, parse_subscription
 
 logger = logging.getLogger("checker.subscription")
@@ -25,8 +26,8 @@ def refresh() -> int:
         settings = db.get_raw_settings()
         urls = [line.strip() for line in settings.get("subscription_url", "").splitlines() if line.strip()]
         if not urls:
-            db.set_meta("last_refresh_error", "Не задана ссылка подписки")
-            raise SubscriptionError("Не задана ссылка подписки")
+            db.set_meta("last_refresh_error", msg("no_subscription_url"))
+            raise SubscriptionError(msg("no_subscription_url"))
         insecure = settings.get("subscription_insecure", "1") == "1"
         insecure_sni = settings.get("tls_insecure_if_no_sni", "1") == "1"
         chunks: list[str] = []
@@ -44,11 +45,11 @@ def refresh() -> int:
             raise
         except Exception as exc:
             logger.exception("subscription parse failed")
-            db.set_meta("last_refresh_error", f"Не удалось разобрать подписку: {exc}")
-            raise SubscriptionError("Не удалось разобрать подписку") from exc
+            db.set_meta("last_refresh_error", f"{msg('subscription_parse_failed')}: {exc}")
+            raise SubscriptionError(msg("subscription_parse_failed")) from exc
         if not nodes:
-            db.set_meta("last_refresh_error", "В подписке не нашлось ссылок узлов")
-            raise SubscriptionError("В подписке не нашлось ссылок узлов")
+            db.set_meta("last_refresh_error", msg("no_nodes_in_subscription"))
+            raise SubscriptionError(msg("no_nodes_in_subscription"))
         count = db.sync_nodes(nodes)
         db.set_meta("subscription_userinfo", userinfo)
         db.set_meta("last_refresh_at", db.utcnow())
@@ -59,7 +60,7 @@ def refresh() -> int:
 
 def fetch(url: str, *, insecure: bool) -> tuple[str, str]:
     if not url.lower().startswith(("https://", "http://")):
-        raise SubscriptionError("Ссылка подписки должна начинаться с http:// или https://")
+        raise SubscriptionError(msg("invalid_url_scheme"))
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
     context = ssl._create_unverified_context() if insecure else ssl.create_default_context()
     try:
@@ -68,9 +69,9 @@ def fetch(url: str, *, insecure: bool) -> tuple[str, str]:
             header = response.headers.get("Subscription-Userinfo", "")
             return body, header
     except urllib.error.HTTPError as exc:
-        raise SubscriptionError(f"Подписка ответила {exc.code}") from exc
+        raise SubscriptionError(msg("subscription_http", code=exc.code)) from exc
     except Exception as exc:
-        raise SubscriptionError(f"Не удалось скачать подписку: {exc}") from exc
+        raise SubscriptionError(f"{msg('subscription_fetch_failed')}: {exc}") from exc
 
 
 def userinfo_view(header: str) -> dict | None:

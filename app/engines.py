@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.config import HYSTERIA_BIN, SPEEDTEST_BIN, XRAY_BIN
+from app.i18n import msg
 from app.parser import ParsedNode
 
 logger = logging.getLogger("checker.engines")
@@ -116,7 +117,7 @@ def describe_binary(path: str, args: list[str]) -> dict:
     try:
         out = subprocess.check_output([path, *args], stderr=subprocess.STDOUT, timeout=4, text=True)
     except Exception:
-        return {"ok": False, "text": f"не найден: {path}"}
+        return {"ok": False, "text": msg("binary_not_found", path=path)}
     lines = [ANSI.sub("", item).strip() for item in out.splitlines()]
     lines = [item for item in lines if item]
     for line in lines:
@@ -124,14 +125,14 @@ def describe_binary(path: str, args: list[str]) -> dict:
             return {"ok": True, "text": line.split(" (", 1)[0]}
         if line.lower().startswith("version:"):
             return {"ok": True, "text": "Hysteria " + line.split(":", 1)[1].strip()}
-    return {"ok": True, "text": lines[0] if lines else path}
+    return {"ok": True, "text": lines[0].split(" built at ", 1)[0] if lines else path}
 
 
 def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeResult:
     if cancel.cancelled:
-        return ProbeResult(error="остановлено")
+        return ProbeResult(error=msg("stopped"))
     if not node.supported or not node.engine:
-        return ProbeResult(error=node.reason or "протокол не поддерживается")
+        return ProbeResult(error=node.reason or msg("protocol_unsupported"))
     work = Path(tempfile.mkdtemp(prefix="xraychk-"))
     proc: subprocess.Popen | None = None
     logs = LogBuffer()
@@ -157,7 +158,7 @@ def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeRes
             )
             if check.returncode != 0:
                 detail = useful_error(scrub((check.stderr or "") + "\n" + (check.stdout or ""), node.secrets))
-                return ProbeResult(error=detail or "Xray отклонил конфиг")
+                return ProbeResult(error=detail or msg("xray_rejected_config"))
             proc, logs = launch([XRAY_BIN, "run", "-c", str(config_path)], cancel)
         elif node.engine == "hysteria":
             config_path = work / "config.yaml"
@@ -165,20 +166,20 @@ def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeRes
             os.chmod(config_path, 0o600)
             proc, logs = launch([HYSTERIA_BIN, "client", "-c", str(config_path)], cancel)
         else:
-            return ProbeResult(error="нет обработчика для протокола")
+            return ProbeResult(error=msg("no_protocol_handler"))
         if proc is None or cancel.cancelled:
-            return ProbeResult(error="остановлено")
+            return ProbeResult(error=msg("stopped"))
         try:
             wait_port(port, proc, timeout=6)
         except Exception as exc:
             detail = useful_error(scrub(logs.text(), node.secrets))
-            return ProbeResult(error=detail or f"прокси не поднялся: {exc}")
+            return ProbeResult(error=detail or f"{msg('proxy_failed')}: {exc}")
         return measure(port, settings, cancel, node.secrets)
     except FileNotFoundError as exc:
-        return ProbeResult(error=f"не найден исполняемый файл: {exc.filename}")
+        return ProbeResult(error=msg("executable_not_found", path=exc.filename))
     except Exception as exc:
         detail = scrub(logs.text() or str(exc), node.secrets)
-        return ProbeResult(error=detail or "сбой проверки")
+        return ProbeResult(error=detail or msg("check_failed"))
     finally:
         if proc is not None:
             stop_process(proc, cancel)
@@ -188,7 +189,7 @@ def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeRes
 
 def measure(port: int, settings: dict, cancel: CancelToken, secrets: list[str]) -> ProbeResult:
     if cancel.cancelled:
-        return ProbeResult(error="остановлено")
+        return ProbeResult(error=msg("stopped"))
     download = bool(settings.get("measure_download", True))
     upload = bool(settings.get("measure_upload", True))
     # JSON приходит только в конце запуска. Отдельные запуски не дают таймауту забрать готовое.
@@ -200,7 +201,7 @@ def measure(port: int, settings: dict, cancel: CancelToken, secrets: list[str]) 
     for step_download, step_upload in steps:
         step, server_id = measure_step(port, step_download, step_upload, server_id, cancel, secrets)
         if cancel.cancelled:
-            return ProbeResult(error="остановлено")
+            return ProbeResult(error=msg("stopped"))
         merge_step(total, step)
         if step.ok:
             continue
@@ -208,13 +209,13 @@ def measure(port: int, settings: dict, cancel: CancelToken, secrets: list[str]) 
             errors.append(step.error)
         alive = traffic_passes(port, cancel)
         if cancel.cancelled:
-            return ProbeResult(error="остановлено")
+            return ProbeResult(error=msg("stopped"))
         if not alive:
             break
     total.ok = not errors
     total.alive = alive
     if errors:
-        prefix = "speedtest" if alive else "узел не пропускает трафик"
+        prefix = "speedtest" if alive else msg("node_no_traffic")
         total.error = f"{prefix}: {'; '.join(errors)}"
     return total
 
@@ -244,11 +245,11 @@ def measure_step(
     code, stdout, error = run_speedtest(cmd, cancel, secrets)
     payload = speedtest_payload(stdout)
     if payload is None:
-        return ProbeResult(error=error or "speedtest не вернул результат"), server_id
+        return ProbeResult(error=error or msg("speedtest_no_result")), server_id
     result = speedtest_result(payload, measure_download=download, measure_upload=upload)
     if code != 0 and result.ok:
         result.ok = False
-        result.error = error or f"speedtest завершился с кодом {code}"
+        result.error = error or msg("speedtest_exit_code", code=code)
     return result, speedtest_server_id(payload) or server_id
 
 
@@ -315,14 +316,14 @@ def run_speedtest(cmd: list[str], cancel: CancelToken, secrets: list[str]) -> tu
         env=clean_env(),
     )
     if not cancel.track(proc):
-        return 1, "", "остановлено"
+        return 1, "", msg("stopped")
     try:
         out, err = proc.communicate(timeout=SPEEDTEST_TIMEOUT)
     except subprocess.TimeoutExpired:
         proc.kill()
         out, err = proc.communicate()
         cancel.untrack(proc)
-        return proc.returncode or 1, (out or b"").decode("utf-8", "replace"), "таймаут speedtest"
+        return proc.returncode or 1, (out or b"").decode("utf-8", "replace"), msg("speedtest_timeout")
     finally:
         cancel.untrack(proc)
     stdout = (out or b"").decode("utf-8", "replace")
@@ -354,26 +355,26 @@ def speedtest_server_id(payload: dict) -> str:
 def speedtest_result(payload: dict, measure_download: bool, measure_upload: bool) -> ProbeResult:
     servers = payload.get("servers") or []
     if not isinstance(servers, list) or not servers or not isinstance(servers[0], dict):
-        return ProbeResult(error="speedtest не нашёл сервер")
+        return ProbeResult(error=msg("speedtest_no_server"))
     server = servers[0]
     result = ProbeResult()
     errors: list[str] = []
     result.latency_ms = duration_ms(server.get("latency"))
     if result.latency_ms is None:
-        errors.append("нет отклика")
+        errors.append(msg("no_latency"))
     duration = server.get("test_duration") if isinstance(server.get("test_duration"), dict) else {}
     if measure_download:
         speed = positive_rate(server.get("dl_speed"))
         result.download_bps = speed
         result.download_bytes = transferred_bytes(speed, duration.get("download"))
         if speed is None:
-            errors.append("входящая: нет данных")
+            errors.append(msg("no_download_data"))
     if measure_upload:
         speed = positive_rate(server.get("ul_speed"))
         result.upload_bps = speed
         result.upload_bytes = transferred_bytes(speed, duration.get("upload"))
         if speed is None:
-            errors.append("исходящая: нет данных")
+            errors.append(msg("no_upload_data"))
     result.ok = not errors
     result.error = "; ".join(errors)
     logger.info(
@@ -440,7 +441,7 @@ def relax_unverified_tls(outbound: dict) -> None:
             # Снимок идёт по TCP, у такого узла TCP-порта может не быть. Сертификат проверит Xray.
             tls.pop("allowInsecure", None)
             return
-        raise RuntimeError(f"не удалось прочитать сертификат {address}:{port}: {exc}") from exc
+        raise RuntimeError(f"{msg('cert_read_failed', address=address, port=port)}: {exc}") from exc
     pin_tls_settings(outbound, digest)
 
 
@@ -464,7 +465,7 @@ def dial_target(outbound: dict) -> tuple[str, int]:
     if servers:
         item = servers[0]
         return str(item["address"]), int(item["port"])
-    raise RuntimeError("в конфиге нет адреса сервера")
+    raise RuntimeError(msg("config_no_server"))
 
 
 def fetch_cert_sha256(address: str, port: int, server_name: str, alpn: list[str]) -> str:
@@ -478,7 +479,7 @@ def fetch_cert_sha256(address: str, port: int, server_name: str, alpn: list[str]
         with context.wrap_socket(sock, server_hostname=server_name or None) as tls:
             der = tls.getpeercert(binary_form=True)
     if not der:
-        raise RuntimeError("сервер не прислал сертификат")
+        raise RuntimeError(msg("no_certificate"))
     return hashlib.sha256(der).hexdigest()
 
 
@@ -556,7 +557,7 @@ def launch(cmd: list[str], cancel: CancelToken) -> tuple[subprocess.Popen, LogBu
     logs = LogBuffer()
     logs.attach(proc)
     if not cancel.track(proc):
-        raise RuntimeError("остановлено")
+        raise RuntimeError(msg("stopped"))
     return proc, logs
 
 
@@ -579,13 +580,13 @@ def wait_port(port: int, proc: subprocess.Popen, timeout: float) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError("процесс завершился")
+            raise RuntimeError(msg("process_exited"))
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.3):
                 return
         except OSError:
             time.sleep(0.15)
-    raise TimeoutError("порт не открылся")
+    raise TimeoutError(msg("port_not_opened"))
 
 
 def free_port() -> int:

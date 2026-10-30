@@ -7,6 +7,7 @@ import logging
 
 from app import db, subscription
 from app.engines import CancelToken, ProbeResult, test_node
+from app.i18n import msg, render
 from app.parser import parse_link
 from app.subscription import SubscriptionError
 
@@ -42,7 +43,7 @@ class Runner:
             "ok": 0,
             "fail": 0,
             "current": [],
-            "phase": "подготовка",
+            "phase": "preparing",
             "started_at": db.utcnow(),
         }
         self._task = asyncio.create_task(
@@ -62,7 +63,7 @@ class Runner:
         if token is not None:
             token.cancel()
         if self.progress is not None:
-            self.progress["phase"] = "остановка"
+            self.progress["phase"] = "stopping"
 
     async def _execute_and_release(
         self,
@@ -90,12 +91,12 @@ class Runner:
         settings = db.public_settings()
         refresh_error = ""
         if settings["refresh_before_run"]:
-            self._phase("обновление подписки")
+            self._phase("refreshing")
             try:
                 await asyncio.to_thread(subscription.refresh)
             except SubscriptionError as exc:
                 refresh_error = str(exc)
-                logger.warning("subscription refresh failed: %s", exc)
+                logger.warning("subscription refresh failed: %s", render(refresh_error))
             settings = db.public_settings()
         if token.cancelled:
             return
@@ -110,7 +111,7 @@ class Runner:
             "ok": 0,
             "fail": 0,
             "current": [],
-            "phase": "проверка",
+            "phase": "checking",
             "started_at": db.utcnow(),
         }
         ok_count = 0
@@ -120,10 +121,10 @@ class Runner:
         try:
             if not rows:
                 status = "failed"
-                error = refresh_error or "Нет узлов для проверки"
+                error = refresh_error or msg("no_nodes_to_check")
                 return
             if refresh_error:
-                error = f"Подписка не обновилась: {refresh_error}"
+                error = f"{msg('subscription_not_refreshed')}: {refresh_error}"
             semaphore = asyncio.Semaphore(max(1, int(settings["concurrency"])))
             current: set[str] = set()
 
@@ -174,7 +175,7 @@ class Runner:
         try:
             node = parse_link(row["link"], insecure_if_no_sni=settings["tls_insecure_if_no_sni"])
         except Exception as exc:
-            return ProbeResult(error=f"Не удалось разобрать ссылку: {exc}")
+            return ProbeResult(error=f"{msg('link_parse_failed')}: {exc}")
         logger.info("probe %s via %s", row["name"], node.engine or node.protocol)
         try:
             return await asyncio.to_thread(test_node, node, settings, token)
@@ -193,4 +194,4 @@ class Runner:
         self.progress["done"] = ok_count + fail_count
         self.progress["ok"] = ok_count
         self.progress["fail"] = fail_count
-        self.progress["phase"] = "остановка" if self.cancel_token and self.cancel_token.cancelled else "проверка"
+        self.progress["phase"] = "stopping" if self.cancel_token and self.cancel_token.cancelled else "checking"

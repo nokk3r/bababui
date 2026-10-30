@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app import db, subscription
 from app.config import APP_VERSION, LOG_LEVEL, STATIC_DIR, WEB_PASSWORD
 from app.engines import binary_status
+from app.i18n import msg, render
 from app.runner import Runner
 from app.scheduler import Scheduler
 from app.subscription import SubscriptionError
@@ -37,7 +38,7 @@ def require_auth(authorization: str | None = Header(default=None)) -> None:
         # Заголовок не несёт кириллицу, поэтому браузер шлёт пароль в percent-кодировке.
         token = unquote(authorization[7:].strip())
     if not hmac.compare_digest(token.encode(), WEB_PASSWORD.encode()):
-        raise HTTPException(status_code=401, detail="Нужен пароль")
+        raise HTTPException(status_code=401, detail=msg("auth_required"))
 
 
 class SettingsIn(BaseModel):
@@ -59,7 +60,7 @@ class SettingsIn(BaseModel):
         for line in value.splitlines():
             item = line.strip()
             if item and not item.lower().startswith(("http://", "https://")):
-                raise ValueError("ссылка должна начинаться с http:// или https://")
+                raise ValueError(msg("invalid_url_scheme"))
         return value.strip()
 
 
@@ -83,7 +84,7 @@ def _safe_refresh() -> None:
     try:
         subscription.refresh()
     except SubscriptionError as exc:
-        logger.warning("startup refresh: %s", exc)
+        logger.warning("startup refresh: %s", render(str(exc)))
 
 
 @asynccontextmanager
@@ -124,8 +125,10 @@ async def validation_error(_: Request, exc: RequestValidationError):
     parts = []
     for item in exc.errors():
         loc = ".".join(str(part) for part in item["loc"] if part != "body")
-        parts.append(f"{loc}: {item['msg']}" if loc else item["msg"])
-    return JSONResponse(status_code=422, content={"detail": "; ".join(parts) or "проверьте поля"})
+        # ctx.error — исходное исключение, в item["msg"] pydantic дописывает к нему префикс.
+        text = str(item.get("ctx", {}).get("error") or item["msg"])
+        parts.append(f"{loc}: {text}" if loc else text)
+    return JSONResponse(status_code=422, content={"detail": "; ".join(parts) or msg("check_fields")})
 
 
 @app.get("/api/health")
@@ -191,7 +194,7 @@ def get_nodes():
 @app.post("/api/nodes/{node_id}/enabled", dependencies=[Depends(require_auth)])
 def set_node_enabled(node_id: str, body: EnabledIn):
     if not db.set_enabled(node_id, body.enabled):
-        raise HTTPException(status_code=404, detail="Узел не найден или протокол не поддерживается")
+        raise HTTPException(status_code=404, detail=msg("node_unavailable"))
     return {"ok": True}
 
 
@@ -205,7 +208,7 @@ def set_nodes_enabled(body: EnabledIn):
 def history(node_id: str, limit: int = 500):
     limit = min(max(limit, 1), 2000)
     if db.get_node_link(node_id) is None:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+        raise HTTPException(status_code=404, detail=msg("node_not_found"))
     return db.node_history(node_id, limit)
 
 
@@ -220,10 +223,10 @@ def series(hours: int = 48):
 async def start_run(body: RunIn, request: Request):
     rows = db.nodes_for_run(body.node_ids, body.include_disabled)
     if not rows:
-        raise HTTPException(status_code=400, detail="Нет узлов для проверки. Включите узлы или обновите подписку.")
+        raise HTTPException(status_code=400, detail=msg("no_nodes_hint"))
     started = await request.app.state.runner.begin("manual", body.node_ids, body.include_disabled)
     if not started:
-        raise HTTPException(status_code=409, detail="Проверка уже выполняется")
+        raise HTTPException(status_code=409, detail=msg("check_in_progress"))
     return {"ok": True}
 
 
@@ -242,14 +245,14 @@ def runs(limit: int = 40):
 def run_detail(run_id: int):
     item = db.get_run(run_id)
     if item is None:
-        raise HTTPException(status_code=404, detail="Прогон не найден")
+        raise HTTPException(status_code=404, detail=msg("run_not_found"))
     return item
 
 
 @app.delete("/api/history", dependencies=[Depends(require_auth)])
 def delete_history(request: Request):
     if request.app.state.runner.busy():
-        raise HTTPException(status_code=409, detail="Нельзя очистить историю во время проверки")
+        raise HTTPException(status_code=409, detail=msg("clear_during_check"))
     db.clear_history()
     return {"ok": True}
 
@@ -292,7 +295,7 @@ def export_csv():
                 "" if down is None else round(down, 1),
                 "" if up is None else round(up, 1),
                 row["ok"],
-                row["error"],
+                render(row["error"]),
                 "" if row["alive"] is None else row["alive"],
             ]
         )

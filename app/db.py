@@ -134,7 +134,7 @@ def init_db() -> None:
         conn.execute(
             """
             UPDATE runs
-            SET status='failed', error='сервис перезапущен', finished_at=?
+            SET status='failed', error='[[service_restarted]]', finished_at=?
             WHERE status='running'
             """,
             (now,),

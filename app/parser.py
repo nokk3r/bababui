@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass, field
 from urllib.parse import unquote
 
+from app.i18n import msg
+
 # parse_qs превращает «+» в пробел и ломает ключи WireGuard и пароли.
 URI_RE = re.compile(
     r"(?:vless|vmess|trojan|ss|hysteria2|hy2|wireguard|wg)://[^\s]+",
@@ -95,7 +97,7 @@ def parse_subscription(text: str, *, insecure_if_no_sni: bool = True) -> list[Pa
 def parse_link(uri: str, *, insecure_if_no_sni: bool = True) -> ParsedNode:
     uri = uri.strip()
     if "://" not in uri:
-        raise ValueError("нет схемы")
+        raise ValueError(msg("no_scheme"))
     scheme, rest = uri.split("://", 1)
     scheme = scheme.lower()
     name = ""
@@ -128,7 +130,7 @@ def parse_link(uri: str, *, insecure_if_no_sni: bool = True) -> ParsedNode:
         return parse_hysteria2(userinfo, host, port, params, name, uri, insecure_if_no_sni)
     if scheme in {"wireguard", "wg"}:
         return parse_wireguard(userinfo, host, port, params, name, uri)
-    raise ValueError(f"протокол {scheme} не поддерживается")
+    raise ValueError(msg("protocol_scheme_unsupported", scheme=scheme))
 
 
 def decode_subscription(text: str) -> str:
@@ -169,7 +171,7 @@ def parse_query(query: str) -> dict[str, str]:
 def split_hostport(hostport: str, default_port: int) -> tuple[str, int]:
     hostport = hostport.strip()
     if not hostport:
-        raise ValueError("пустой адрес")
+        raise ValueError(msg("empty_address"))
     if hostport.startswith("["):
         host, _, tail = hostport[1:].partition("]")
         port = int(tail[1:]) if tail.startswith(":") and tail[1:] else default_port
@@ -179,19 +181,19 @@ def split_hostport(hostport: str, default_port: int) -> tuple[str, int]:
     elif ":" not in hostport:
         host, port = hostport, default_port
     else:
-        raise ValueError("не удалось разобрать адрес")
+        raise ValueError(msg("address_parse_failed"))
     host = host.strip()
     if not host or any(ch.isspace() for ch in host):
-        raise ValueError("некорректный адрес")
+        raise ValueError(msg("invalid_address"))
     if not 1 <= port <= 65535:
-        raise ValueError("некорректный порт")
+        raise ValueError(msg("invalid_port"))
     return host, port
 
 
 def parse_vless(userinfo, host, port, params, name, uri, insecure_if_no_sni) -> ParsedNode:
     uuid = userinfo.strip()
     if not uuid:
-        raise ValueError("нет UUID")
+        raise ValueError(msg("no_uuid"))
     transport = transport_from_params(params, insecure_if_no_sni=insecure_if_no_sni)
     transport.flow = params.get("flow", "")
     if transport.security == "reality" and not transport.public_key:
@@ -204,7 +206,7 @@ def parse_vless(userinfo, host, port, params, name, uri, insecure_if_no_sni) -> 
             uri=uri,
             secret=uuid,
             supported=False,
-            reason="у REALITY нет public key",
+            reason=msg("reality_no_public_key"),
             secrets=[uuid],
         )
     user = {"id": uuid, "encryption": (params.get("encryption") or "none").strip() or "none"}
@@ -235,7 +237,7 @@ def parse_vless(userinfo, host, port, params, name, uri, insecure_if_no_sni) -> 
 def parse_trojan(userinfo, host, port, params, name, uri, insecure_if_no_sni) -> ParsedNode:
     password = userinfo
     if not password:
-        raise ValueError("нет пароля")
+        raise ValueError(msg("no_password"))
     transport = transport_from_params(params, insecure_if_no_sni=insecure_if_no_sni)
     if transport.security == "none":
         transport.security = "tls"
@@ -263,7 +265,7 @@ def parse_trojan(userinfo, host, port, params, name, uri, insecure_if_no_sni) ->
 
 def parse_ss(userinfo, host, port, params, name, uri) -> ParsedNode:
     if params.get("plugin"):
-        return _plain_unsupported("shadowsocks", name, host, port, "tcp", "none", uri, "плагин shadowsocks не поддерживается")
+        return _plain_unsupported("shadowsocks", name, host, port, "tcp", "none", uri, msg("ss_plugin_unsupported"))
     method, password = split_ss_userinfo(userinfo)
     outbound = {
         "tag": "proxy",
@@ -304,7 +306,7 @@ def parse_ss_legacy(rest: str, name: str, uri: str) -> ParsedNode:
     if "?" in decoded:
         decoded = decoded.split("?", 1)[0]
     if "@" not in decoded or ":" not in decoded.split("@", 1)[0]:
-        raise ValueError("не удалось разобрать shadowsocks")
+        raise ValueError(msg("ss_parse_failed"))
     userinfo, hostport = decoded.rsplit("@", 1)
     method, password = userinfo.split(":", 1)
     host, port = split_hostport(hostport, 8388)
@@ -335,7 +337,7 @@ def parse_vmess(rest: str, name: str, uri: str, *, insecure_if_no_sni: bool) -> 
     port = int(data.get("port") or 443)
     uuid = str(data.get("id") or "").strip()
     if not host or not uuid:
-        raise ValueError("неполный vmess")
+        raise ValueError(msg("vmess_incomplete"))
     display = name or str(data.get("ps") or "")
     security = str(data.get("tls") or data.get("security") or "")
     if security in {"", "none", "0"}:
@@ -387,7 +389,7 @@ def parse_hysteria2(userinfo, host, port, params, name, uri, insecure_if_no_sni)
     else:
         auth = userinfo
     if not auth:
-        raise ValueError("нет пароля hysteria2")
+        raise ValueError(msg("hysteria_no_password"))
     sni = params.get("sni") or params.get("peer") or ""
     insecure_flag = _truthy(params.get("insecure") or params.get("allowInsecure"))
     allow_insecure = insecure_flag or (insecure_if_no_sni and not sni)
@@ -413,7 +415,7 @@ def parse_hysteria2(userinfo, host, port, params, name, uri, insecure_if_no_sni)
     if obfs:
         if not obfs_password:
             return _plain_unsupported(
-                "hysteria2", name, host, port, "udp", "tls", uri, "у obfs нет пароля", [auth]
+                "hysteria2", name, host, port, "udp", "tls", uri, msg("obfs_no_password"), [auth]
             )
         profile["obfs"] = {"type": obfs, obfs: {"password": obfs_password}}
         secrets.append(obfs_password)
@@ -442,10 +444,10 @@ def parse_wireguard(userinfo, host, port, params, name, uri) -> ParsedNode:
     public_key = params.get("publickey") or params.get("publicKey") or ""
     address = params.get("address") or params.get("ip") or ""
     if not private_key or not public_key:
-        raise ValueError("нет ключей WireGuard")
+        raise ValueError(msg("wireguard_no_keys"))
     if not address:
         return _plain_unsupported(
-            "wireguard", name, host, port, "udp", "none", uri, "нет локального адреса", [private_key, public_key]
+            "wireguard", name, host, port, "udp", "none", uri, msg("wireguard_no_address"), [private_key, public_key]
         )
     addresses = [item.strip() for item in address.split(",") if item.strip()]
     mtu = _int(params.get("mtu"), 1420)
@@ -630,7 +632,7 @@ def _node(
     removed = REMOVED_NETWORKS.get(transport.network)
     if supported and removed:
         supported = False
-        reason = f"транспорт {removed} удалён из Xray"
+        reason = msg("transport_removed", transport=removed)
     extra_id = extra or "|".join(
         [
             transport.network,
@@ -684,7 +686,7 @@ def _unsupported_from_raw(uri: str, reason: str) -> ParsedNode:
     scheme = uri.split("://", 1)[0].lower()
     return ParsedNode(
         id=make_id(scheme or "bad", "invalid", 0, "", uri, reason),
-        name=normalize_name("", scheme or "узел", "?", 0),
+        name=normalize_name("", scheme or "node", "?", 0),
         protocol=scheme or "unknown",
         address="?",
         port=0,
@@ -738,10 +740,10 @@ def split_ss_userinfo(userinfo: str) -> tuple[str, str]:
             return method, password
     decoded = b64decode_text(userinfo)
     if ":" not in decoded:
-        raise ValueError("не удалось разобрать shadowsocks")
+        raise ValueError(msg("ss_parse_failed"))
     method, password = decoded.split(":", 1)
     if not _ss_method(method) or not password:
-        raise ValueError("не удалось разобрать shadowsocks")
+        raise ValueError(msg("ss_parse_failed"))
     return method, password
 
 

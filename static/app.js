@@ -7,6 +7,13 @@ const PROTOCOL_LABEL = {
   wireguard: "WireGuard",
 };
 
+const PROJECT_LINKS = {
+  app: "https://github.com/nokk3r/bababui",
+  xray: "https://github.com/XTLS/Xray-core",
+  hysteria: "https://github.com/apernet/hysteria",
+  speedtest: "https://github.com/showwin/speedtest-go",
+};
+
 const state = {
   nodes: [],
   series: new Map(),
@@ -103,7 +110,7 @@ async function api(path, options = {}) {
       /* тело не JSON */
     }
     if (detail && typeof detail !== "string") detail = JSON.stringify(detail);
-    throw new Error(detail || "запрос не выполнен");
+    throw new Error(tMsg(detail) || t("error.requestFailed"));
   }
   const type = response.headers.get("content-type") || "";
   if (type.includes("application/json")) return response.json();
@@ -145,7 +152,7 @@ function setMbps(id, bps) {
   el.replaceChildren(document.createTextNode(value));
   if (value === "—") return;
   const unit = document.createElement("small");
-  unit.textContent = "Мбит/с";
+  unit.textContent = t("unit.mbps");
   el.append(unit);
 }
 
@@ -159,21 +166,21 @@ function mbps(bps) {
 
 function formatMs(value) {
   if (value == null) return "—";
-  return `${Math.round(Number(value))} мс`;
+  return `${Math.round(Number(value))} ${t("unit.ms")}`;
 }
 
 function formatBytes(bytes) {
   const size = Number(bytes) || 0;
-  if (size < 1000 ** 2) return `${Math.round(size / 1000)} КБ`;
-  if (size < 1000 ** 3) return `${(size / 1000 ** 2).toFixed(size >= 10 * 1000 ** 2 ? 0 : 1)} МБ`;
-  return `${(size / 1000 ** 3).toFixed(2)} ГБ`;
+  if (size < 1000 ** 2) return `${Math.round(size / 1000)} ${t("unit.kb")}`;
+  if (size < 1000 ** 3) return `${(size / 1000 ** 2).toFixed(size >= 10 * 1000 ** 2 ? 0 : 1)} ${t("unit.mb")}`;
+  return `${(size / 1000 ** 3).toFixed(2)} ${t("unit.gb")}`;
 }
 
 function formatTime(iso) {
   if (!iso) return "—";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("ru-RU", {
+  return new Intl.DateTimeFormat(i18n.lang, {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
@@ -182,22 +189,20 @@ function formatTime(iso) {
 }
 
 function nextLabel(remote) {
-  if (!remote || remote.running) return "идёт";
-  if (!remote.scheduler_enabled) return "выкл";
+  if (!remote || remote.running) return t("next.running");
+  if (!remote.scheduler_enabled || !remote.next_run_at) return t("next.off");
   const value = countdown(remote.next_run_at);
-  if (value === "сейчас" || value === "выключена") return value === "выключена" ? "выкл" : "сейчас";
-  return `через ${value}`;
+  return value ? t("next.in", { time: value }) : t("next.now");
 }
 
 function countdown(iso) {
-  if (!iso) return "выключена";
   const diff = new Date(iso).getTime() - Date.now();
-  if (diff <= 0) return "сейчас";
+  if (diff <= 0) return "";
   const minutes = Math.floor(diff / 60000);
   const seconds = Math.floor((diff % 60000) / 1000);
   if (minutes >= 60) {
     const hours = Math.floor(minutes / 60);
-    return `${hours} ч ${minutes % 60} мин`;
+    return t("next.hoursMinutes", { hours, minutes: minutes % 60 });
   }
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
@@ -208,6 +213,14 @@ function mean(values) {
   return nums.reduce((sum, value) => sum + value, 0) / nums.length;
 }
 
+function unitMbps() {
+  return `<small>${esc(t("unit.mbps"))}</small>`;
+}
+
+function tableHead(keys) {
+  return keys.map((key) => `<th>${esc(t(key))}</th>`).join("");
+}
+
 function setMs(id, value) {
   const el = $(id);
   if (value == null || Number.isNaN(Number(value))) {
@@ -216,7 +229,7 @@ function setMs(id, value) {
   }
   el.replaceChildren(document.createTextNode(String(Math.round(value))));
   const unit = document.createElement("small");
-  unit.textContent = "мс";
+  unit.textContent = t("unit.ms");
   el.append(unit);
 }
 
@@ -225,7 +238,7 @@ function protocolName(protocol) {
 }
 
 function statusLabel(status) {
-  return { running: "идёт", done: "завершена", cancelled: "остановлена", failed: "ошибка" }[status] || status;
+  return ["running", "done", "cancelled", "failed"].includes(status) ? t(`runStatus.${status}`) : status;
 }
 
 function spark(values) {
@@ -266,22 +279,22 @@ function sortNodes(nodes) {
     if (key === "name" || key === "protocol") {
       const left = key === "name" ? a.name : protocolName(a.protocol);
       const right = key === "name" ? b.name : protocolName(b.protocol);
-      const compared = left.localeCompare(right, "ru");
+      const compared = left.localeCompare(right, i18n.lang);
       return compared === 0 ? 0 : compared * direction;
     }
     if (key === "enabled") {
       const compared = Number(Boolean(a.enabled)) - Number(Boolean(b.enabled));
-      return compared === 0 ? a.name.localeCompare(b.name, "ru") : compared * direction;
+      return compared === 0 ? a.name.localeCompare(b.name, i18n.lang) : compared * direction;
     }
     const left = a[key];
     const right = b[key];
     const leftEmpty = left == null || left === "";
     const rightEmpty = right == null || right === "";
-    if (leftEmpty && rightEmpty) return a.name.localeCompare(b.name, "ru");
+    if (leftEmpty && rightEmpty) return a.name.localeCompare(b.name, i18n.lang);
     if (leftEmpty) return 1;
     if (rightEmpty) return -1;
     const compared = Number(left) - Number(right);
-    return compared === 0 ? a.name.localeCompare(b.name, "ru") : compared * direction;
+    return compared === 0 ? a.name.localeCompare(b.name, i18n.lang) : compared * direction;
   });
 }
 
@@ -320,42 +333,48 @@ function renderStatus() {
     $("progress").hidden = false;
     const total = running.total || 0;
     const done = running.done || 0;
-    const width = total ? Math.min(100, Math.round((done / total) * 100)) : (running.phase === "проверка" ? 8 : 15);
+    const width = total ? Math.min(100, Math.round((done / total) * 100)) : (running.phase === "checking" ? 8 : 15);
     $("progress-bar").style.width = `${width}%`;
     const current = (running.current || []).join(", ");
-    const phase = running.phase || "проверка";
+    const phase = t(`phase.${running.phase || "checking"}`);
     $("progress-label").textContent = current ? `${phase}: ${current}` : phase;
     $("progress-count").textContent = total ? `${done} / ${total}` : "";
-    $("stat-next").textContent = "идёт";
+    $("stat-next").textContent = t("next.running");
   } else {
     $("progress").hidden = true;
     $("stat-next").textContent = nextLabel(remote);
   }
   const messages = [];
-  if (remote.last_refresh_error) messages.push(remote.last_refresh_error);
+  if (remote.last_refresh_error) messages.push(tMsg(remote.last_refresh_error));
   const versions = remote.versions || {};
-  if (versions.xray && versions.xray.ok === false) messages.push(`Xray: ${versions.xray.text}`);
-  if (versions.hysteria && versions.hysteria.ok === false) messages.push(`Hysteria2: ${versions.hysteria.text}`);
-  if (versions.speedtest && versions.speedtest.ok === false) messages.push(`speedtest: ${versions.speedtest.text}`);
+  if (versions.xray && versions.xray.ok === false) messages.push(`Xray: ${tMsg(versions.xray.text)}`);
+  if (versions.hysteria && versions.hysteria.ok === false) messages.push(`Hysteria2: ${tMsg(versions.hysteria.text)}`);
+  if (versions.speedtest && versions.speedtest.ok === false) messages.push(`speedtest: ${tMsg(versions.speedtest.text)}`);
   $("banner").hidden = messages.length === 0;
   $("banner").textContent = messages.join(" ");
-  const versionBits = [
-    `bababui ${versions.app || "0.2.0"}`,
-    versions.xray?.text,
-    versions.hysteria?.text,
-    versions.speedtest?.text,
-  ].filter(Boolean);
-  $("versions").textContent = versionBits.join("\n");
+  const versionLinks = [
+    [`bababui ${versions.app || "0.2.0"}`, PROJECT_LINKS.app],
+    [versions.xray?.text, PROJECT_LINKS.xray],
+    [versions.hysteria?.text, PROJECT_LINKS.hysteria],
+    [versions.speedtest?.text, PROJECT_LINKS.speedtest],
+  ].filter(([text]) => text).map(([text, url]) => (
+    `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(tMsg(text))}</a>`
+  )).join("");
+  /* Статус приходит каждые две секунды: пересборка на лету съедала бы клик по ссылке. */
+  if ($("versions").dataset.html !== versionLinks) {
+    $("versions").dataset.html = versionLinks;
+    $("versions").innerHTML = versionLinks;
+  }
   const quota = remote.userinfo;
   if (quota && quota.total > 0) {
     const used = (quota.upload || 0) + (quota.download || 0);
-    $("quota").textContent = `Трафик подписки: ${formatBytes(used)} из ${formatBytes(quota.total)}`;
+    $("quota").textContent = t("subscription.traffic", { used: formatBytes(used), total: formatBytes(quota.total) });
   } else if (quota && quota.expire > 0) {
-    $("quota").textContent = `Подписка до ${formatTime(new Date(quota.expire * 1000).toISOString())}`;
+    $("quota").textContent = t("subscription.until", { date: formatTime(new Date(quota.expire * 1000).toISOString()) });
   } else {
     $("quota").textContent = "";
   }
-  $("refreshed").textContent = remote.last_refresh_at ? `Список узлов: ${formatTime(remote.last_refresh_at)}` : "";
+  $("refreshed").textContent = remote.last_refresh_at ? t("subscription.lastRefresh", { time: formatTime(remote.last_refresh_at) }) : "";
 }
 
 function renderFilters() {
@@ -365,7 +384,7 @@ function renderFilters() {
   if (select.dataset.signature === signature) return;
   select.dataset.signature = signature;
   const current = state.protocol;
-  const options = [`<option value="all">Все протоколы</option>`].concat(
+  const options = [`<option value="all">${esc(t("filter.allProtocols"))}</option>`].concat(
     protocols.map((protocol) => `<option value="${esc(protocol)}">${esc(protocolName(protocol))}</option>`),
   );
   select.innerHTML = options.join("");
@@ -413,7 +432,7 @@ function renderTable() {
   });
   if (!rows.length) {
     const waiting = !state.remote.last_refresh_at && !state.remote.last_refresh_error;
-    const text = waiting ? "Загружаем подписку…" : "Нет узлов по текущему фильтру.";
+    const text = waiting ? t("common.loadingSubscription") : t("common.noMatches");
     tbody.innerHTML = `<tr><td colspan="10" class="empty">${esc(text)}</td></tr>`;
     return;
   }
@@ -431,13 +450,13 @@ function renderTable() {
       </td>
       <td data-col="protocol"><span class="proto proto-${esc(node.protocol)}">${esc(protocolName(node.protocol))}</span></td>
       <td data-col="latency_ms" class="metric">${esc(formatMs(node.latency_ms))}</td>
-      <td data-col="download_bps" class="metric">${esc(mbps(node.download_bps))}${node.download_bps != null ? "<small>Мбит/с</small>" : ""}</td>
-      <td data-col="upload_bps" class="metric">${esc(mbps(node.upload_bps))}${node.upload_bps != null ? "<small>Мбит/с</small>" : ""}</td>
+      <td data-col="download_bps" class="metric">${esc(mbps(node.download_bps))}${node.download_bps != null ? unitMbps() : ""}</td>
+      <td data-col="upload_bps" class="metric">${esc(mbps(node.upload_bps))}${node.upload_bps != null ? unitMbps() : ""}</td>
       <td data-col="avg_latency_ms" class="metric">${node.avg_latency_ms == null ? "—" : esc(formatMs(node.avg_latency_ms))}</td>
-      <td data-col="avg_download_bps" class="metric">${esc(mbps(node.avg_download_bps))}${node.avg_download_bps != null ? "<small>Мбит/с</small>" : ""}</td>
-      <td data-col="avg_upload_bps" class="metric">${esc(mbps(node.avg_upload_bps))}${node.avg_upload_bps != null ? "<small>Мбит/с</small>" : ""}</td>
+      <td data-col="avg_download_bps" class="metric">${esc(mbps(node.avg_download_bps))}${node.avg_download_bps != null ? unitMbps() : ""}</td>
+      <td data-col="avg_upload_bps" class="metric">${esc(mbps(node.avg_upload_bps))}${node.avg_upload_bps != null ? unitMbps() : ""}</td>
       <td data-col="spark">${spark(series)}</td>
-      <td data-col="action"><button type="button" class="ghost row-button" data-test="${esc(node.id)}" ${node.supported ? "" : "disabled"}>Проверить</button></td>
+      <td data-col="action"><button type="button" class="ghost row-button" data-test="${esc(node.id)}" ${node.supported ? "" : "disabled"}>${esc(t("action.check"))}</button></td>
     </tr>`;
   }).join("");
 }
@@ -448,19 +467,19 @@ function subscriptionNodes() {
     if (!state.showInactive && !node.active) return false;
     if (!query) return true;
     return `${node.name} ${node.address} ${node.protocol}`.toLowerCase().includes(query);
-  }).sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  }).sort((a, b) => a.name.localeCompare(b.name, i18n.lang));
 }
 
 function renderSubscription() {
   const tbody = document.querySelector("#subscription-nodes tbody");
   const rows = subscriptionNodes();
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="3" class="empty">Нет узлов по текущему фильтру.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" class="empty">${esc(t("common.noMatches"))}</td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map((node) => {
     const dot = nodeDot(node);
-    const note = node.active ? `${node.address}:${node.port}` : "нет в подписке";
+    const note = node.active ? `${node.address}:${node.port}` : t("subscription.gone");
     return `<tr data-id="${esc(node.id)}" class="${node.enabled ? "" : "is-off"} ${node.active ? "" : "is-gone"}">
       <td>
         <div class="name">
@@ -477,16 +496,16 @@ function renderSubscription() {
 function renderRuns() {
   const root = $("runs");
   if (!state.runs.length) {
-    root.innerHTML = `<p class="empty">Проверок ещё не было.</p>`;
+    root.innerHTML = `<p class="empty">${esc(t("history.empty"))}</p>`;
     return;
   }
   root.innerHTML = state.runs.map((run) => `
     <article class="run">
       <button type="button" data-open-run="${run.id}">
         <strong>${esc(formatTime(run.started_at))}</strong>
-        <span>${run.trigger === "schedule" ? "по расписанию" : "вручную"}</span>
+        <span>${esc(t(run.trigger === "schedule" ? "history.scheduled" : "history.manual"))}</span>
         <span class="status-${esc(run.status)}">${esc(statusLabel(run.status))}</span>
-        <span>${esc(run.ok_count)} успешно, ${esc(run.fail_count)} с ошибкой${run.error ? ` · ${esc(run.error)}` : ""}</span>
+        <span>${esc(t("history.summary", { ok: run.ok_count, fail: run.fail_count }))}${run.error ? ` · ${esc(tMsg(run.error))}` : ""}</span>
       </button>
       <div class="run-detail" hidden></div>
     </article>
@@ -526,20 +545,20 @@ function collectForm() {
 
 function renderEstimate() {
   const enabled = state.nodes.filter((node) => node.active && node.supported && node.enabled).length;
-  const parts = ["отклик"];
-  if ($("measure_download").checked) parts.push("входящая");
-  if ($("measure_upload").checked) parts.push("исходящая");
+  const parts = [t("estimate.latency")];
+  if ($("measure_download").checked) parts.push(t("estimate.download"));
+  if ($("measure_upload").checked) parts.push(t("estimate.upload"));
   const text = enabled
-    ? `В замере: ${parts.join(", ")}. Объём за прогон зависит от скорости канала.`
-    : "Нет включённых узлов.";
+    ? t("estimate.measuring", { parts: parts.join(", ") })
+    : t("estimate.noNodes");
   document.querySelectorAll(".estimate").forEach((el) => {
     el.textContent = text;
   });
 }
 
 function setSettingsPane(name) {
-  const panes = ["subscription", "schedule", "check"];
-  const pane = panes.includes(name) ? name : "subscription";
+  const panes = ["general", "subscription", "schedule", "check"];
+  const pane = panes.includes(name) ? name : "general";
   document.querySelectorAll("[data-settings-nav]").forEach((button) => {
     button.classList.toggle("active", button.dataset.settingsNav === pane);
   });
@@ -600,15 +619,15 @@ async function tick() {
 }
 
 const PAGE_TITLES = {
-  overview: "Узлы подписки",
-  subscription: "Подписка",
-  history: "История",
-  settings: "Настройки",
+  overview: "page.overview",
+  subscription: "nav.subscription",
+  history: "nav.history",
+  settings: "nav.settings",
 };
 
 function setView(name) {
   const view = ["overview", "subscription", "history", "settings"].includes(name) ? name : "overview";
-  $("page-title").textContent = PAGE_TITLES[view];
+  $("page-title").textContent = t(PAGE_TITLES[view]);
   for (const item of ["overview", "subscription", "history", "settings"]) {
     $(`view-${item}`).hidden = item !== view;
   }
@@ -619,12 +638,20 @@ function setView(name) {
   if (location.hash !== `#${view}`) history.replaceState(null, "", `#${view}`);
 }
 
+function rerender() {
+  $("protocol-filter").dataset.signature = "";
+  setView(location.hash.slice(1));
+  renderOverview();
+  renderRuns();
+  renderEstimate();
+}
+
 async function refreshSubscription() {
   $("refresh-button").disabled = true;
   try {
     const result = await api("/api/subscription/refresh", { method: "POST" });
     await reloadAll();
-    toast(`Подписка обновлена: ${result.count} узлов`);
+    toast(t("toast.subscriptionUpdated", { count: result.count }));
   } catch (error) {
     if (!error.unauthorized) toast(error.message);
   } finally {
@@ -683,7 +710,7 @@ function drawChart(canvas, rows) {
   if (!points.length) {
     ctx.fillStyle = cssColor("--muted", "#6e6e6e");
     ctx.font = "14px sans-serif";
-    ctx.fillText("Пока нет измерений", 12, 28);
+    ctx.fillText(t("chart.noMeasurements"), 12, 28);
     return;
   }
   const pad = { left: 52, right: 12, top: 16, bottom: 28 };
@@ -757,21 +784,21 @@ async function openNode(id) {
         <h2>${esc(node.name)}</h2>
         <p class="muted">${esc(node.address)}:${esc(node.port)}</p>
       </div>
-      <button type="button" class="ghost" data-close>Закрыть</button>
+      <button type="button" class="ghost" data-close>${esc(t("action.close"))}</button>
     </div>
-    <p class="legend"><span><i class="down"></i>входящая</span><span><i class="up"></i>исходящая</span></p>
+    <p class="legend"><span><i class="down"></i>${esc(t("dialog.download"))}</span><span><i class="up"></i>${esc(t("dialog.upload"))}</span></p>
     <canvas></canvas>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Время</th><th>Отклик</th><th>Входящая</th><th>Исходящая</th><th>Итог</th></tr></thead>
+        <thead><tr>${tableHead(["column.time", "column.latency", "column.download", "column.upload", "column.result"])}</tr></thead>
         <tbody>
           ${recent.map((row) => `<tr>
             <td>${esc(formatTime(row.tested_at))}</td>
             <td class="metric">${esc(formatMs(row.latency_ms))}</td>
             <td class="metric">${esc(mbps(row.download_bps))}</td>
             <td class="metric">${esc(mbps(row.upload_bps))}</td>
-            <td>${row.ok ? "ок" : esc(row.error || "ошибка")}</td>
-          </tr>`).join("") || `<tr><td colspan="5" class="empty">Измерений нет</td></tr>`}
+            <td>${esc(row.ok ? t("dialog.ok") : tMsg(row.error) || t("dialog.error"))}</td>
+          </tr>`).join("") || `<tr><td colspan="5" class="empty">${esc(t("dialog.noMeasurements"))}</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -806,7 +833,7 @@ async function openRun(id, article) {
     const payload = await api(`/api/runs/${id}`);
     const rows = payload.results || [];
     detail.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>Узел</th><th>Канал</th><th>Отклик</th><th>Входящая</th><th>Исходящая</th></tr></thead>
+      <thead><tr>${tableHead(["column.node", "column.protocol", "column.latency", "column.download", "column.upload"])}</tr></thead>
       <tbody>${rows.map((row) => `<tr>
         <td>
           <div class="name">
@@ -816,9 +843,9 @@ async function openRun(id, article) {
         </td>
         <td><span class="proto proto-${esc(row.protocol)}">${esc(protocolName(row.protocol))}</span></td>
         <td class="metric">${esc(formatMs(row.latency_ms))}</td>
-        <td class="metric">${esc(mbps(row.download_bps))}${row.download_bps != null ? "<small>Мбит/с</small>" : ""}</td>
-        <td class="metric">${esc(mbps(row.upload_bps))}${row.upload_bps != null ? "<small>Мбит/с</small>" : ""}</td>
-      </tr>`).join("") || `<tr><td colspan="5" class="empty">В этом прогоне нет результатов</td></tr>`}</tbody>
+        <td class="metric">${esc(mbps(row.download_bps))}${row.download_bps != null ? unitMbps() : ""}</td>
+        <td class="metric">${esc(mbps(row.upload_bps))}${row.upload_bps != null ? unitMbps() : ""}</td>
+      </tr>`).join("") || `<tr><td colspan="5" class="empty">${esc(t("history.noResults"))}</td></tr>`}</tbody>
     </table></div>`;
     detail.dataset.loaded = "1";
     detail.hidden = false;
@@ -828,6 +855,7 @@ async function openRun(id, article) {
 }
 
 function bind() {
+  document.addEventListener("bababui:lang", rerender);
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
@@ -921,7 +949,8 @@ function bind() {
   document.querySelectorAll("[data-settings-nav]").forEach((button) => {
     button.addEventListener("click", () => setSettingsPane(button.dataset.settingsNav));
   });
-  $("settings-form").addEventListener("input", () => {
+  $("settings-form").addEventListener("input", (event) => {
+    if (event.target.matches("[data-lang-select]")) return;
     state.formDirty = true;
     syncGroups();
     renderEstimate();
@@ -936,7 +965,7 @@ function bind() {
       state.remote.scheduler_enabled = saved.scheduler_enabled;
       state.remote.interval_minutes = saved.interval_minutes;
       renderStatus();
-      toast("Настройки сохранены");
+      toast(t("toast.settingsSaved"));
     } catch (error) {
       if (!error.unauthorized) toast(error.message);
     }
@@ -944,7 +973,7 @@ function bind() {
   $("export-button").addEventListener("click", async () => {
     try {
       const response = await fetch("/api/export.csv", { headers: authHeaders() });
-      if (!response.ok) throw new Error("не удалось скачать CSV");
+      if (!response.ok) throw new Error(t("error.csvFailed"));
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -957,11 +986,11 @@ function bind() {
     }
   });
   $("clear-button").addEventListener("click", async () => {
-    if (!window.confirm("Удалить все результаты проверок?")) return;
+    if (!window.confirm(t("history.confirmClear"))) return;
     try {
       await api("/api/history", { method: "DELETE" });
       await reloadAll();
-      toast("История очищена");
+      toast(t("toast.historyCleared"));
     } catch (error) {
       if (!error.unauthorized) toast(error.message);
     }
@@ -982,12 +1011,13 @@ function bind() {
     } catch (error) {
       sessionStorage.removeItem("token");
       $("login-error").hidden = false;
-      $("login-error").textContent = error.unauthorized ? "Неверный пароль" : error.message;
+      $("login-error").textContent = error.unauthorized ? t("login.wrongPassword") : error.message;
     }
   });
 }
 
 async function boot() {
+  await initI18n();
   bind();
   setView((location.hash || "#overview").slice(1));
   try {
@@ -1000,7 +1030,7 @@ async function boot() {
     }
   } catch (error) {
     if (!error.unauthorized) {
-      toast(error.message || "Нет связи с сервисом");
+      toast(error.message || t("error.noConnection"));
       showApp();
     }
   }

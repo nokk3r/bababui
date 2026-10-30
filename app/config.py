@@ -24,7 +24,7 @@ def _log_level() -> int:
     level = _LOG_LEVELS.get(raw)
     if level is None:
         allowed = ", ".join(_LOG_LEVELS)
-        raise RuntimeError(f"LOG_LEVEL={raw!r} не из списка: {allowed}")
+        raise RuntimeError(f"LOG_LEVEL={raw!r} is not one of: {allowed}")
     return level
 
 
