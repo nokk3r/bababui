@@ -1,0 +1,18 @@
+services:
+  xray-checker:
+    build: .
+    image: xray-checker:local
+    container_name: xray-checker
+    restart: unless-stopped
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${PORT:-8080}:8080"
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+      WEB_PASSWORD: ${WEB_PASSWORD:-}
+    volumes:
+      - xray-checker-data:/data
+
+volumes:
+  xray-checker-data:

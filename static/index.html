@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>xray-checker</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23f4f4f4'/%3E%3Cpath d='M6 22 L12 10 L16 18 L20 8 L26 22' fill='none' stroke='%231a1a1a' stroke-width='2.4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div id="login" class="gate" hidden>
+    <form id="login-form" class="panel gate-card">
+      <p class="eyebrow">xray-checker</p>
+      <h1>Вход</h1>
+      <label for="password">Пароль</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <p id="login-error" class="form-error" hidden></p>
+      <button type="submit" class="primary">Открыть</button>
+    </form>
+  </div>
+
+  <div id="shell" class="shell">
+    <aside class="nav">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <strong>xray-checker</strong>
+          <p>Скорость узлов</p>
+        </div>
+      </div>
+      <nav>
+        <button type="button" data-view="overview" class="active">Обзор</button>
+        <button type="button" data-view="subscription">Подписка</button>
+        <button type="button" data-view="history">История</button>
+        <button type="button" data-view="settings">Настройки</button>
+      </nav>
+      <div class="nav-foot">
+        <p class="next-label">Следующая проверка</p>
+        <p id="stat-next" class="next-run">—</p>
+        <p id="versions" class="versions"></p>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="top">
+        <div>
+          <h1 id="page-title">Узлы подписки</h1>
+        </div>
+        <div class="top-actions">
+          <button type="button" id="run-button" class="primary">Проверить сейчас</button>
+          <button type="button" id="stop-button" class="danger" hidden>Остановить</button>
+        </div>
+      </header>
+
+      <div id="banner" class="banner" hidden></div>
+      <div id="progress" class="progress" hidden>
+        <div class="progress-meta">
+          <span id="progress-label">Проверка</span>
+          <span id="progress-count"></span>
+        </div>
+        <div class="progress-track"><div id="progress-bar"></div></div>
+      </div>
+
+      <section id="view-overview">
+        <div class="cards">
+          <article class="card">
+            <p>В подписке</p>
+            <strong id="stat-nodes">—</strong>
+          </article>
+          <article class="card">
+            <p>AVG отклик</p>
+            <strong id="stat-latency">—</strong>
+          </article>
+          <article class="card">
+            <p>AVG входящая</p>
+            <strong id="stat-down-avg">—</strong>
+          </article>
+          <article class="card">
+            <p>AVG исходящая</p>
+            <strong id="stat-up-avg">—</strong>
+          </article>
+        </div>
+
+        <div class="toolbar">
+          <input id="search" type="search" placeholder="Имя или адрес" aria-label="Поиск узла">
+          <select id="protocol-filter" aria-label="Протокол"></select>
+        </div>
+
+        <div class="table-frame">
+          <button type="button" id="column-picker" class="column-picker" aria-label="Столбцы" aria-expanded="false" aria-controls="column-menu">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.2 7.2 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.13.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.31.6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.58-.22 1.13-.54 1.63-.94l2.39.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
+            </svg>
+          </button>
+          <div id="column-menu" class="column-menu" hidden>
+            <label><input type="checkbox" value="protocol" checked> Канал</label>
+            <label><input type="checkbox" value="latency_ms" checked> Отклик</label>
+            <label><input type="checkbox" value="download_bps" checked> Входящая</label>
+            <label><input type="checkbox" value="upload_bps" checked> Исходящая</label>
+            <label><input type="checkbox" value="avg_latency_ms" checked> AVG отклик</label>
+            <label><input type="checkbox" value="avg_download_bps" checked> AVG входящая</label>
+            <label><input type="checkbox" value="avg_upload_bps" checked> AVG исходящая</label>
+            <label><input type="checkbox" value="spark" checked> 48 ч</label>
+            <label><input type="checkbox" value="action" checked> Проверить</label>
+          </div>
+          <div class="table-wrap">
+          <table id="nodes">
+            <thead>
+              <tr>
+                <th data-sort="name" data-col="name">Узел</th>
+                <th data-sort="protocol" data-col="protocol">Канал</th>
+                <th data-sort="latency_ms" data-col="latency_ms">Отклик</th>
+                <th data-sort="download_bps" data-col="download_bps">Входящая</th>
+                <th data-sort="upload_bps" data-col="upload_bps">Исходящая</th>
+                <th data-sort="avg_latency_ms" data-col="avg_latency_ms">AVG отклик</th>
+                <th data-sort="avg_download_bps" data-col="avg_download_bps">AVG входящая</th>
+                <th data-sort="avg_upload_bps" data-col="avg_upload_bps">AVG исходящая</th>
+                <th data-col="spark">48 ч</th>
+                <th data-col="action"></th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="10" class="empty">Загрузка…</td></tr></tbody>
+          </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-subscription" hidden>
+        <div class="section-head">
+          <p class="muted">Какие узлы есть в списке и какие из них проверять.</p>
+          <div class="top-actions">
+            <button type="button" id="refresh-button" class="ghost">Обновить подписку</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <input id="sub-search" type="search" placeholder="Имя или адрес" aria-label="Поиск в подписке">
+          <label class="check"><input id="show-inactive" type="checkbox"> Показать ушедшие из подписки</label>
+          <div class="toolbar-end">
+            <button type="button" id="enable-all" class="ghost">Включить все</button>
+            <button type="button" id="disable-all" class="ghost">Выключить все</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="subscription-nodes">
+            <thead>
+              <tr>
+                <th>Узел</th>
+                <th>Канал</th>
+                <th>В проверке</th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="3" class="empty">Загрузка…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-history" hidden>
+        <div class="section-head">
+          <div>
+            <p class="muted">Каждая строка — один запуск по расписанию или вручную.</p>
+          </div>
+          <div class="top-actions">
+            <button type="button" id="export-button" class="ghost">Скачать CSV</button>
+            <button type="button" id="clear-button" class="danger">Очистить историю</button>
+          </div>
+        </div>
+        <div id="runs" class="runs"></div>
+      </section>
+
+      <section id="view-settings" hidden>
+        <form id="settings-form" class="settings">
+          <nav class="settings-nav" aria-label="Разделы настроек">
+            <button type="button" data-settings-nav="subscription" class="active">Подписка</button>
+            <button type="button" data-settings-nav="schedule">Расписание</button>
+            <button type="button" data-settings-nav="check">Проверка</button>
+          </nav>
+
+          <div class="settings-main">
+            <section class="settings-pane" data-settings-pane="subscription">
+              <h2>Подписка</h2>
+              <p class="settings-lead">Откуда брать список узлов.</p>
+              <label for="subscription_url">Ссылки, по одной на строку</label>
+              <textarea id="subscription_url" rows="5" spellcheck="false"></textarea>
+              <label class="check"><input id="subscription_insecure" type="checkbox"> Не проверять TLS-сертификат подписки</label>
+              <label class="check"><input id="refresh_before_run" type="checkbox"> Обновлять список узлов перед каждой проверкой</label>
+              <label class="check"><input id="tls_insecure_if_no_sni" type="checkbox"> Если в ссылке нет SNI, не проверять сертификат узла</label>
+              <button type="submit" class="primary">Сохранить</button>
+            </section>
+
+            <section class="settings-pane group" data-settings-pane="schedule" data-gate="scheduler_enabled" hidden>
+              <h2>Расписание</h2>
+              <p class="settings-lead">Как часто запускать проверку и сколько хранить историю.</p>
+              <label>Интервал, минуты<input id="interval_minutes" type="number" min="1" max="1440" step="1"></label>
+              <div class="field">
+                <span class="label-row">
+                  <label for="concurrency">Одновременно узлов</label>
+                  <span class="hint" tabindex="0">
+                    <span class="hint-mark" aria-hidden="true">?</span>
+                    <span class="hint-bubble" role="tooltip">Один узел за раз даёт более честную цифру: параллельные проверки делят один канал. Объём — потолок передачи. На быстром узле проверка заканчивается раньше лимита времени, скорость всё равно считается по фактически переданным данным.</span>
+                  </span>
+                </span>
+                <input id="concurrency" type="number" min="1" max="4" step="1">
+              </div>
+              <label>Хранить историю, дни<input id="retention_days" type="number" min="1" max="3650" step="1"></label>
+              <label class="check"><input id="scheduler_enabled" type="checkbox"> Запускать по расписанию</label>
+              <p class="estimate"></p>
+              <button type="submit" class="primary">Сохранить</button>
+            </section>
+
+            <section class="settings-pane" data-settings-pane="check" hidden>
+              <h2>Проверка</h2>
+              <p class="settings-lead">Как мерить скорость и куда ходить через узел.</p>
+              <div class="group" data-gate="measure_download">
+                <h3>Входящая скорость</h3>
+                <p class="card-note">Сколько скачать через узел, чтобы посчитать скорость.</p>
+                <label>Лимит, секунды<input id="download_seconds" type="number" min="3" max="60" step="1"></label>
+                <label>Объём, МБ<input id="download_mb" type="number" min="1" max="2000" step="0.5"></label>
+                <label class="check"><input id="measure_download" type="checkbox"> Измерять входящую скорость</label>
+              </div>
+              <div class="group" data-gate="measure_upload">
+                <h3>Исходящая скорость</h3>
+                <p class="card-note">Сколько отдать через узел, чтобы посчитать скорость.</p>
+                <label>Лимит, секунды<input id="upload_seconds" type="number" min="3" max="60" step="1"></label>
+                <label>Объём, МБ<input id="upload_mb" type="number" min="1" max="2000" step="0.5"></label>
+                <label class="check"><input id="measure_upload" type="checkbox"> Измерять исходящую скорость</label>
+              </div>
+              <div class="group">
+                <h3>Адреса</h3>
+                <p class="card-note">Куда ходить через проверяемый узел.</p>
+                <label for="latency_url">Отклик</label>
+                <input id="latency_url" type="url" spellcheck="false">
+                <label for="download_url">Входящая скорость</label>
+                <input id="download_url" type="url" spellcheck="false">
+                <label for="upload_url">Исходящая скорость</label>
+                <input id="upload_url" type="url" spellcheck="false">
+                <p class="muted">К адресу входящей добавляется <code>?bytes=</code>, если его там ещё нет. Запросы идут через SOCKS проверяемого узла.</p>
+              </div>
+              <p class="estimate"></p>
+              <button type="submit" class="primary">Сохранить</button>
+            </section>
+          </div>
+        </form>
+      </section>
+
+      <footer id="footnote" class="footnote" hidden>
+        <span id="refreshed"></span>
+        <span id="quota"></span>
+      </footer>
+    </div>
+  </div>
+
+  <dialog id="node-dialog"></dialog>
+  <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
