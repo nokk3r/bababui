@@ -40,7 +40,7 @@ const COLUMN_KEYS = [
 function loadColumns() {
   const columns = Object.fromEntries(COLUMN_KEYS.map((key) => [key, true]));
   try {
-    const saved = JSON.parse(localStorage.getItem("xray-checker-columns") || "{}");
+    const saved = JSON.parse(localStorage.getItem("bababui-columns") || "{}");
     for (const key of COLUMN_KEYS) {
       if (typeof saved[key] === "boolean") columns[key] = saved[key];
     }
@@ -340,7 +340,7 @@ function renderStatus() {
   $("banner").hidden = messages.length === 0;
   $("banner").textContent = messages.join(" ");
   const versionBits = [
-    `xray-checker ${versions.app || "0.2.0"}`,
+    `bababui ${versions.app || "0.2.0"}`,
     versions.xray?.text,
     versions.hysteria?.text,
     versions.speedtest?.text,
@@ -858,7 +858,7 @@ function bind() {
     const input = event.target.closest("input");
     if (!input) return;
     state.columns[input.value] = input.checked;
-    localStorage.setItem("xray-checker-columns", JSON.stringify(state.columns));
+    localStorage.setItem("bababui-columns", JSON.stringify(state.columns));
     applyColumns();
   });
   document.addEventListener("click", (event) => {
@@ -938,7 +938,7 @@ function bind() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "xray-checker.csv";
+      link.download = "bababui.csv";
       link.click();
       URL.revokeObjectURL(url);
     } catch (error) {

@@ -1,8 +1,10 @@
+name: bababui
+
 services:
-  xray-checker:
+  bababui:
     build: .
-    image: xray-checker:local
-    container_name: xray-checker
+    image: bababui:local
+    container_name: bababui
     restart: unless-stopped
     ports:
       - "${BIND_HOST:-127.0.0.1}:${PORT:-8080}:8080"
@@ -12,7 +14,7 @@ services:
       DATA_DIR: /data
       WEB_PASSWORD: ${WEB_PASSWORD:-}
     volumes:
-      - xray-checker-data:/data
+      - bababui-data:/data
 
 volumes:
-  xray-checker-data:
+  bababui-data:

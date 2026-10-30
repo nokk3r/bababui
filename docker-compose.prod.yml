@@ -1,6 +1,6 @@
 services:
-  xray-checker:
-    image: nokk3r/xray-checker:0.2.0
+  bababui:
+    image: nokk3r/bababui:0.2.0
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -9,7 +9,7 @@ services:
       WEB_PASSWORD: ""
       LOG_LEVEL: WARNING
     volumes:
-      - xray-checker-data:/data
+      - bababui-data:/data
 
 volumes:
-  xray-checker-data:
+  bababui-data:

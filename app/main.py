@@ -1,4 +1,4 @@
-"""Веб-интерфейс и API xray-checker."""
+"""Веб-интерфейс и API bababui."""
 
 from __future__ import annotations
 
@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-app = FastAPI(title="xray-checker", lifespan=lifespan)
+app = FastAPI(title="bababui", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -295,7 +295,7 @@ def export_csv():
     return Response(
         content=buffer.getvalue(),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=xray-checker.csv"},
+        headers={"Content-Disposition": "attachment; filename=bababui.csv"},
     )
 
 
