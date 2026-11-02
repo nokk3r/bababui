@@ -7,3 +7,5 @@ __pycache__/
 *.db
 upload.bin
 release/
+node_modules/
+frontend/dist/

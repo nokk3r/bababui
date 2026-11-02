@@ -7,6 +7,7 @@ from app.i18n import msg, render
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCALES = ROOT / "static" / "locales"
+FRONTEND = ROOT / "frontend" / "src"
 PLURAL = re.compile(r"_(zero|one|two|few|many|other)$")
 CYRILLIC = re.compile(r"[А-Яа-яЁё]")
 
@@ -24,7 +25,11 @@ def placeholders(text: str) -> set[str]:
 
 
 def strip_comments(text: str) -> str:
-    return re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"/\*.*?\*/|<!--.*?-->", "", text, flags=re.S)
+
+
+def frontend_sources() -> list[Path]:
+    return [path for path in FRONTEND.rglob("*") if path.suffix in {".vue", ".js"}]
 
 
 class LocaleTests(unittest.TestCase):
@@ -39,11 +44,10 @@ class LocaleTests(unittest.TestCase):
 
     def test_frontend_keys_exist(self):
         keys = base_keys(load("en"))
-        html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
-        js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
-        used = set(re.findall(r'data-i18n(?:-\w+)?="([^"]+)"', html))
-        used |= set(re.findall(r'\bt\("([^"]+)"', js))
-        used |= set(re.findall(r'"((?:column|nav|page|history)\.[A-Za-z.]+)"', js))
+        source = "\n".join(path.read_text(encoding="utf-8") for path in frontend_sources())
+        used = set(re.findall(r"""\bt\(["']([^"']+)["']""", source))
+        used |= set(re.findall(r'"((?:column|nav|page|history|settings)\.[A-Za-z.]+)"', source))
+        self.assertGreater(len(used), 50)
         self.assertEqual(used - keys, set())
 
     def test_backend_keys_exist(self):
@@ -53,9 +57,11 @@ class LocaleTests(unittest.TestCase):
                 self.assertIn(f"server.{key}", source, path.name)
 
     def test_no_hardcoded_cyrillic_in_ui(self):
-        for name in ("index.html", "app.js"):
-            text = strip_comments((ROOT / "static" / name).read_text(encoding="utf-8"))
-            self.assertIsNone(CYRILLIC.search(text), name)
+        for path in frontend_sources():
+            text = strip_comments(path.read_text(encoding="utf-8"))
+            # Названия языков в переключателе пишутся на самих этих языках.
+            text = text.replace('ru: "Русский"', "")
+            self.assertIsNone(CYRILLIC.search(text), path.name)
 
 
 class RenderTests(unittest.TestCase):

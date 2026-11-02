@@ -4,6 +4,9 @@
 
 ### RU
 
+- Xray обновлён до 26.10.31: релиз 26.10.29 удалён из репозитория Xray-core, и образ перестал собираться. Сборка Docker теперь сверяет SHA-256 скачанных Xray, Hysteria и speedtest-go.
+- Интерфейс переписан на Vue и собирается Vite. Исходники лежат в `frontend/`, образ Docker собирает их сам.
+- Интерфейс опрашивает состояние раз в 2 секунды только во время проверки, в простое раз в 12 секунд, а на скрытой вкладке не опрашивает. Короткая проверка теперь сразу появляется в истории. Из `/api/state` убраны неиспользуемые `enabled_count` и `node_count`.
 - Интерфейс теперь на английском по умолчанию, русский включается переключателем языка. Строки вынесены в `static/locales`, ошибки бэкенда переводятся в браузере. Столбец `error` в CSV теперь на английском.
 - `docker-compose.prod.yml` публикует порт на `127.0.0.1` и не стартует без `WEB_PASSWORD`. Адрес и порт задаются через `BIND_HOST` и `PORT`.
 - Несколько ссылок подписки в разных форматах загружаются полностью.
@@ -20,6 +23,9 @@
 
 ### EN
 
+- Xray is updated to 26.10.31: the 26.10.29 release was removed from the Xray-core repository, which broke image builds. The Docker build now verifies the SHA-256 of the downloaded Xray, Hysteria, and speedtest-go.
+- The interface is rewritten in Vue and built with Vite. Sources live in `frontend/`, and the Docker image builds them itself.
+- The interface polls state every 2 seconds only during a check, every 12 seconds when idle, and not at all in a hidden tab. A short check now shows up in history right away. The unused `enabled_count` and `node_count` are gone from `/api/state`.
 - The interface is now English by default, with Russian available from the language switcher. Strings live in `static/locales`, and backend errors are translated in the browser. The CSV `error` column is now in English.
 - `docker-compose.prod.yml` publishes the port on `127.0.0.1` and refuses to start without `WEB_PASSWORD`. Set the address and port with `BIND_HOST` and `PORT`.
 - Several subscription links in different formats now load in full.

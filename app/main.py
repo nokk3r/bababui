@@ -141,8 +141,6 @@ def health(request: Request):
 def state(request: Request):
     raw = db.get_raw_settings()
     public = db.public_settings(raw)
-    nodes = db.list_nodes()
-    enabled = [node for node in nodes if node["active"] and node["supported"] and node["enabled"]]
     next_at = request.app.state.scheduler.next_at
     runs = db.list_runs(1)
     return {
@@ -153,8 +151,6 @@ def state(request: Request):
         "last_refresh_error": raw.get("last_refresh_error") or "",
         "userinfo": subscription.userinfo_view(raw.get("subscription_userinfo") or ""),
         "versions": request.app.state.versions,
-        "enabled_count": len(enabled),
-        "node_count": sum(1 for node in nodes if node["active"]),
         "interval_minutes": public["interval_minutes"],
         "last_run": runs[0] if runs else None,
     }
