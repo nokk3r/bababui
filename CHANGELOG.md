@@ -20,7 +20,6 @@
 - Параллельные проверки не могут получить один локальный порт.
 - Узлы с TLS поверх UDP (kcp, xhttp с h3) без снимка сертификата проверяются средствами Xray.
 - Узлы с транспортами HTTP/2 и QUIC помечаются неподдерживаемыми: Xray их удалил.
-- Образ теперь публикуется в `ghcr.io/nokk3r/bababui`. `docker-compose.prod.yml` смотрит туда же.
 
 ### EN
 
@@ -40,7 +39,6 @@
 - Parallel checks can no longer get the same local port.
 - Nodes with TLS over UDP (kcp, xhttp with h3) that have no certificate snapshot are verified by Xray.
 - Nodes using the HTTP/2 and QUIC transports are marked unsupported because Xray removed them.
-- The image is now published to `ghcr.io/nokk3r/bababui`. `docker-compose.prod.yml` points there too.
 
 ## 0.2.0 — 2026-10-30
 
