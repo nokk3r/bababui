@@ -10,6 +10,14 @@
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="manifest" href="/icons/site.webmanifest">
   <meta name="theme-color" content="#0a0a0a">
+  <script>
+    /* Тему ставим до первой отрисовки, иначе тёмная вспыхивает белым. */
+    try {
+      const mode = localStorage.getItem("bababui-theme");
+      const dark = mode === "dark" || (mode !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.classList.toggle("dark", dark);
+    } catch {}
+  </script>
 </head>
 <body>
   <div id="app"></div>

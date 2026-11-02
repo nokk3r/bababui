@@ -1,5 +1,9 @@
 <script setup>
 import { ref } from "vue";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { api, loginOpen } from "../lib/api.js";
 import { t } from "../lib/i18n.js";
 import { reloadAll } from "../store.js";
@@ -23,15 +27,24 @@ async function submit() {
 </script>
 
 <template>
-  <div class="gate">
-    <form class="panel gate-card" @submit.prevent="submit">
-      <p class="eyebrow">bababui</p>
-      <h1>{{ t("login.title") }}</h1>
-      <label for="password">{{ t("login.password") }}</label>
-      <input id="password" v-model="password" type="password" autocomplete="current-password" required>
-      <p v-if="error" class="form-error">{{ error }}</p>
-      <button type="submit" class="primary">{{ t("login.submit") }}</button>
-      <LangSelect :aria-label="t('settings.general.language')" />
-    </form>
+  <div class="grid min-h-dvh place-items-center bg-sidebar p-6">
+    <Card class="w-full max-w-sm px-6 py-6">
+      <form class="flex flex-col gap-4" @submit.prevent="submit">
+        <div class="flex items-center gap-3">
+          <span class="brand-mark size-9 rounded-lg" aria-hidden="true"></span>
+          <div>
+            <p class="text-xs text-muted-foreground">bababui</p>
+            <h1 class="text-xl font-semibold tracking-tight">{{ t("login.title") }}</h1>
+          </div>
+        </div>
+        <div class="flex flex-col gap-2">
+          <Label for="password">{{ t("login.password") }}</Label>
+          <Input id="password" v-model="password" type="password" autocomplete="current-password" required class="h-9" />
+        </div>
+        <p v-if="error" class="text-sm text-destructive" role="alert">{{ error }}</p>
+        <Button type="submit" size="lg">{{ t("login.submit") }}</Button>
+        <LangSelect :aria-label="t('settings.general.language')" />
+      </form>
+    </Card>
   </div>
 </template>

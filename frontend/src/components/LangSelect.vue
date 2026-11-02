@@ -1,15 +1,23 @@
 <script setup>
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { i18n, LANGUAGES, setLang } from "../lib/i18n.js";
 
-function change(event) {
-  setLang(event.target.value).catch(() => {
-    event.target.value = i18n.lang;
+defineOptions({ inheritAttrs: false });
+
+function change(lang) {
+  setLang(lang).catch(() => {
+    /* остаётся прежний язык */
   });
 }
 </script>
 
 <template>
-  <select class="lang-select" data-lang-select :value="i18n.lang" @change="change">
-    <option v-for="(name, code) in LANGUAGES" :key="code" :value="code">{{ name }}</option>
-  </select>
+  <Select :model-value="i18n.lang" @update:model-value="change">
+    <SelectTrigger v-bind="$attrs" class="w-full">
+      <SelectValue />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem v-for="(name, code) in LANGUAGES" :key="code" :value="code">{{ name }}</SelectItem>
+    </SelectContent>
+  </Select>
 </template>

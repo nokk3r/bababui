@@ -1,77 +1,64 @@
 <script setup>
 import { computed, ref, watch } from "vue";
-import { formatMs, formatTime, mbps, protocolName } from "../lib/format.js";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { formatMs, formatTime, mbps } from "../lib/format.js";
 import { t, tMsg } from "../lib/i18n.js";
 import { state } from "../store.js";
 import NodeChart from "./NodeChart.vue";
+import ProtoBadge from "./ProtoBadge.vue";
 
-const dialog = ref(null);
-const recent = computed(() => (state.dialog?.history || []).slice(-8).reverse());
-
-function stopBackgroundScroll(event) {
-  const el = dialog.value;
-  if (!el?.open || event.deltaY === 0) return;
-  const box = el.getBoundingClientRect();
-  const overDialog = event.clientX >= box.left && event.clientX <= box.right
-    && event.clientY >= box.top && event.clientY <= box.bottom;
-  const canScroll = el.scrollHeight > el.clientHeight + 1;
-  const atTop = el.scrollTop <= 0;
-  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
-  const dialogTakesIt = overDialog && canScroll && !((event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom));
-  if (!dialogTakesIt) event.preventDefault();
-}
+/* Содержимое остаётся на время анимации закрытия, поэтому держим последний открытый узел. */
+const shown = ref(null);
+const recent = computed(() => (shown.value?.history || []).slice(-8).reverse());
 
 watch(() => state.dialog, (value) => {
-  if (!value || dialog.value.open) return;
-  dialog.value.showModal();
-  document.addEventListener("wheel", stopBackgroundScroll, { passive: false });
-}, { flush: "post" });
+  if (value) shown.value = value;
+});
 
-function closed() {
-  document.removeEventListener("wheel", stopBackgroundScroll);
-  state.dialog = null;
+function changed(open) {
+  if (!open) state.dialog = null;
 }
 </script>
 
 <template>
-  <dialog ref="dialog" @close="closed">
-    <template v-if="state.dialog">
-      <div class="dialog-head">
-        <div>
-          <p class="eyebrow">{{ protocolName(state.dialog.node.protocol) }}</p>
-          <h2>{{ state.dialog.node.name }}</h2>
-          <p class="muted">{{ state.dialog.node.address }}:{{ state.dialog.node.port }}</p>
+  <Dialog :open="Boolean(state.dialog)" @update:open="changed">
+    <DialogContent class="max-h-[calc(100dvh-2rem)] gap-4 overflow-y-auto p-5 sm:max-w-3xl">
+      <template v-if="shown">
+        <DialogHeader class="min-w-0 pr-8">
+          <ProtoBadge :protocol="shown.node.protocol" />
+          <DialogTitle class="truncate text-xl font-semibold tracking-tight">{{ shown.node.name }}</DialogTitle>
+          <DialogDescription class="font-mono text-xs">{{ shown.node.address }}:{{ shown.node.port }}</DialogDescription>
+        </DialogHeader>
+        <NodeChart :rows="shown.history" />
+        <div class="overflow-hidden rounded-xl border">
+          <Table>
+            <TableHeader>
+              <TableRow class="hover:bg-transparent">
+                <TableHead class="px-3 text-xs text-muted-foreground">{{ t("column.time") }}</TableHead>
+                <TableHead class="px-3 text-xs text-muted-foreground">{{ t("column.latency") }}</TableHead>
+                <TableHead class="px-3 text-xs text-muted-foreground">{{ t("column.download") }}</TableHead>
+                <TableHead class="px-3 text-xs text-muted-foreground">{{ t("column.upload") }}</TableHead>
+                <TableHead class="px-3 text-xs text-muted-foreground">{{ t("column.result") }}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="row in recent" :key="row.tested_at">
+                <TableCell class="px-3">{{ formatTime(row.tested_at) }}</TableCell>
+                <TableCell class="px-3 tabular">{{ formatMs(row.latency_ms) }}</TableCell>
+                <TableCell class="px-3 tabular">{{ mbps(row.download_bps) }}</TableCell>
+                <TableCell class="px-3 tabular">{{ mbps(row.upload_bps) }}</TableCell>
+                <TableCell class="min-w-40 px-3 whitespace-normal" :class="row.ok ? 'text-success' : 'text-destructive'">
+                  {{ row.ok ? t("dialog.ok") : tMsg(row.error) || t("dialog.error") }}
+                </TableCell>
+              </TableRow>
+              <TableRow v-if="!recent.length">
+                <TableCell colspan="5" class="px-3 py-6 text-muted-foreground">{{ t("dialog.noMeasurements") }}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
         </div>
-        <button type="button" class="ghost" @click="dialog.close()">{{ t("action.close") }}</button>
-      </div>
-      <p class="legend">
-        <span><i class="down"></i>{{ t("dialog.download") }}</span>
-        <span><i class="up"></i>{{ t("dialog.upload") }}</span>
-      </p>
-      <NodeChart :rows="state.dialog.history" />
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>{{ t("column.time") }}</th>
-              <th>{{ t("column.latency") }}</th>
-              <th>{{ t("column.download") }}</th>
-              <th>{{ t("column.upload") }}</th>
-              <th>{{ t("column.result") }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in recent" :key="row.tested_at">
-              <td>{{ formatTime(row.tested_at) }}</td>
-              <td class="metric">{{ formatMs(row.latency_ms) }}</td>
-              <td class="metric">{{ mbps(row.download_bps) }}</td>
-              <td class="metric">{{ mbps(row.upload_bps) }}</td>
-              <td>{{ row.ok ? t("dialog.ok") : tMsg(row.error) || t("dialog.error") }}</td>
-            </tr>
-            <tr v-if="!recent.length"><td colspan="5" class="empty">{{ t("dialog.noMeasurements") }}</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </template>
-  </dialog>
+      </template>
+    </DialogContent>
+  </Dialog>
 </template>

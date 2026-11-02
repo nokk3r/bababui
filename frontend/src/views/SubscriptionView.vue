@@ -1,5 +1,12 @@
 <script setup>
+import { RefreshCwIcon, SearchIcon } from "@lucide/vue";
 import { computed, ref } from "vue";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import NodeName from "../components/NodeName.vue";
 import ProtoBadge from "../components/ProtoBadge.vue";
 import { api } from "../lib/api.js";
@@ -40,13 +47,11 @@ async function setAll(enabled) {
   }
 }
 
-async function toggle(event, node) {
-  const { checked } = event.target;
+async function toggle(node, enabled) {
   try {
-    await api(`/api/nodes/${node.id}/enabled`, { method: "POST", json: { enabled: checked } });
-    node.enabled = checked;
+    await api(`/api/nodes/${node.id}/enabled`, { method: "POST", json: { enabled } });
+    node.enabled = enabled;
   } catch (error) {
-    event.target.checked = !checked;
     reportError(error);
   }
 }
@@ -58,64 +63,74 @@ function rowClick(event, node) {
 </script>
 
 <template>
-  <section>
-    <div class="section-head">
-      <p class="muted">{{ t("subscription.lead") }}</p>
-      <div class="top-actions">
-        <button
-          type="button"
-          class="ghost"
-          :disabled="refreshing || Boolean(state.remote.running)"
-          @click="refresh"
-        >{{ t("action.refreshSubscription") }}</button>
+  <section class="flex flex-col gap-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <p class="text-sm text-muted-foreground">{{ t("subscription.lead") }}</p>
+      <Button variant="outline" size="lg" :disabled="refreshing || Boolean(state.remote.running)" @click="refresh">
+        <RefreshCwIcon :class="{ 'animate-spin': refreshing }" aria-hidden="true" />{{ t("action.refreshSubscription") }}
+      </Button>
+    </div>
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div class="relative min-w-52 flex-1 sm:max-w-sm">
+        <SearchIcon class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+        <Input
+          v-model="state.subQuery"
+          type="search"
+          class="h-9 pl-8"
+          :placeholder="t('search.placeholder')"
+          :aria-label="t('search.subscription')"
+        />
+      </div>
+      <div class="flex items-center gap-2">
+        <Checkbox id="show-inactive" v-model="state.showInactive" />
+        <Label for="show-inactive" class="font-normal">{{ t("subscription.showInactive") }}</Label>
+      </div>
+      <div class="flex gap-2 sm:ml-auto">
+        <Button variant="outline" size="lg" @click="setAll(true)">{{ t("action.enableAll") }}</Button>
+        <Button variant="outline" size="lg" @click="setAll(false)">{{ t("action.disableAll") }}</Button>
       </div>
     </div>
-    <div class="toolbar">
-      <input
-        v-model="state.subQuery"
-        type="search"
-        :placeholder="t('search.placeholder')"
-        :aria-label="t('search.subscription')"
-      >
-      <label class="check"><input v-model="state.showInactive" type="checkbox"> <span>{{ t("subscription.showInactive") }}</span></label>
-      <div class="toolbar-end">
-        <button type="button" class="ghost" @click="setAll(true)">{{ t("action.enableAll") }}</button>
-        <button type="button" class="ghost" @click="setAll(false)">{{ t("action.disableAll") }}</button>
-      </div>
-    </div>
-    <div class="table-wrap">
-      <table id="subscription-nodes">
-        <thead>
-          <tr>
-            <th>{{ t("column.node") }}</th>
-            <th>{{ t("column.protocol") }}</th>
-            <th>{{ t("column.inCheck") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
+    <div class="overflow-hidden rounded-xl border">
+      <Table>
+        <TableHeader>
+          <TableRow class="hover:bg-transparent">
+            <TableHead class="px-3 text-xs text-muted-foreground">{{ t("column.node") }}</TableHead>
+            <TableHead class="hidden px-3 text-xs text-muted-foreground sm:table-cell">{{ t("column.protocol") }}</TableHead>
+            <TableHead class="px-3 text-right text-xs text-muted-foreground">{{ t("column.inCheck") }}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow
             v-for="node in rows"
             :key="node.id"
-            :class="{ 'is-off': !node.enabled, 'is-gone': !node.active }"
+            class="cursor-pointer"
+            :class="{ 'opacity-60': !node.enabled }"
             @click="rowClick($event, node)"
           >
-            <td>
+            <TableCell class="max-w-56 px-3 sm:max-w-96">
               <NodeName
                 :dot="nodeDot(node)"
                 :name="node.name"
                 :sub="node.active ? `${node.address}:${node.port}` : t('subscription.gone')"
+                interactive
+                @open="openNode(node.id)"
               />
-            </td>
-            <td><ProtoBadge :protocol="node.protocol" /></td>
-            <td>
-              <label class="check">
-                <input type="checkbox" :checked="node.enabled" :disabled="!node.supported" @change="toggle($event, node)">
-              </label>
-            </td>
-          </tr>
-          <tr v-if="!rows.length"><td colspan="3" class="empty">{{ t("common.noMatches") }}</td></tr>
-        </tbody>
-      </table>
+            </TableCell>
+            <TableCell class="hidden px-3 sm:table-cell"><ProtoBadge :protocol="node.protocol" /></TableCell>
+            <TableCell class="px-3 text-right">
+              <Switch
+                :model-value="node.enabled"
+                :disabled="!node.supported"
+                :aria-label="node.name"
+                @update:model-value="toggle(node, $event)"
+              />
+            </TableCell>
+          </TableRow>
+          <TableRow v-if="!rows.length">
+            <TableCell colspan="3" class="px-3 py-6 text-muted-foreground">{{ t("common.noMatches") }}</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
     </div>
   </section>
 </template>

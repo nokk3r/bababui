@@ -29,11 +29,11 @@ const path = computed(() => {
 <template>
   <svg
     v-if="path"
-    class="spark"
+    class="block fill-none stroke-success stroke-[1.6]"
     :viewBox="`0 0 ${WIDTH} ${HEIGHT}`"
     :width="WIDTH"
     :height="HEIGHT"
     aria-hidden="true"
   ><path :d="path" /></svg>
-  <span v-else class="muted">—</span>
+  <span v-else class="text-muted-foreground">—</span>
 </template>

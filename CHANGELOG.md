@@ -4,7 +4,23 @@
 
 ### RU
 
+- Интерфейс перенесён на shadcn-vue, Reka UI и Tailwind CSS. Появилась тёмная тема: системная, светлая или тёмная на выбор в **Настройках → Общие**. Шрифт Inter лежит в образе, внешних запросов нет.
+- На обзоре первой идёт карточка «Работают» с числом рабочих узлов и разбивкой сбоев. Средние значения подписаны числом узлов, по которым они посчитаны.
+- График узла переписан на uPlot: ось идёт по времени, неудачные проверки отмечены на графике, добавлены задержка и значения при наведении.
+- Интерфейс работает на телефоне: узлы показаны карточками, навигация внизу экрана, страница больше не шире экрана.
+- Сортировка и карточка узла доступны с клавиатуры, статус узла передаётся значком и подписью, контраст текста статусов повышен.
+- В настройках одна кнопка сохранения и сброс изменений. Параллельность и срок хранения истории больше не блокируются при выключенном расписании: они действуют на любой запуск.
+- Кнопка проверки узла отключена, пока идёт другая проверка. Очистка истории подтверждается в диалоге приложения. Без ссылки подписки обзор предлагает её добавить.
+
 ### EN
+
+- The interface moved to shadcn-vue, Reka UI, and Tailwind CSS. There is now a dark theme: pick system, light, or dark in **Settings → General**. The Inter font ships in the image, so nothing is loaded from outside.
+- Overview now opens with a Working card showing the number of working nodes and a breakdown of failures. Averages state how many nodes they cover.
+- The node chart is rewritten on uPlot: the axis follows time, failed checks are marked on the chart, and latency and hover values are added.
+- The interface works on phones: nodes appear as cards, navigation sits at the bottom, and the page no longer overflows the screen.
+- Sorting and node details work from the keyboard, node status has an icon and a label, and status text has higher contrast.
+- Settings have one Save button and a way to discard changes. Concurrency and history retention are no longer locked when the schedule is off, because they apply to every run.
+- A node's Check button is disabled while another check is running. Clearing history is confirmed in an app dialog. Without a subscription link, Overview offers to add one.
 
 ## 0.3.0 — 2026-11-02
 

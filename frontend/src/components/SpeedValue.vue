@@ -8,5 +8,5 @@ const value = computed(() => mbps(props.bps));
 </script>
 
 <template>
-  {{ value }}<small v-if="value !== '—'">{{ t("unit.mbps") }}</small>
+  {{ value }}<small v-if="value !== '—'" class="ml-1 text-[0.72em] font-normal text-muted-foreground">{{ t("unit.mbps") }}</small>
 </template>

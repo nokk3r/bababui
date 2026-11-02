@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import { toast } from "vue-sonner";
 import { api, loginOpen } from "./lib/api.js";
 import { t } from "./lib/i18n.js";
 
@@ -46,34 +47,16 @@ export const state = reactive({
   subQuery: "",
   columns: loadColumns(),
   dialog: null,
-  toasts: [],
+  settingsPane: "general",
   lastDone: -1,
   tick: 0,
 });
 
-let toastId = 0;
 let nextPollAt = 0;
 let polling = false;
 let seenRun;
 
-export function removeToast(id) {
-  state.toasts = state.toasts.filter((item) => item.id !== id);
-}
-
-export function dismissToast(id) {
-  const item = state.toasts.find((entry) => entry.id === id);
-  if (!item || item.leaving) return;
-  item.leaving = true;
-  setTimeout(() => removeToast(id), 280);
-}
-
-export function toast(message) {
-  toastId += 1;
-  const id = toastId;
-  state.toasts.unshift({ id, message, leaving: false });
-  state.toasts.slice(3).forEach((item) => dismissToast(item.id));
-  setTimeout(() => dismissToast(id), 4600);
-}
+export { toast };
 
 /* Общая обработка: на 401 уже открыта страница входа, остальное показываем тостом. */
 export function reportError(error) {
@@ -84,6 +67,11 @@ export function setView(name) {
   const view = VIEWS.includes(name) ? name : "overview";
   state.view = view;
   if (location.hash !== `#${view}`) history.replaceState(null, "", `#${view}`);
+}
+
+export function openSettings(pane) {
+  state.settingsPane = pane;
+  setView("settings");
 }
 
 function runKey(remote) {

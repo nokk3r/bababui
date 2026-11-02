@@ -1,4 +1,17 @@
 <script setup>
+import { DownloadIcon, Trash2Icon } from "@lucide/vue";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import RunItem from "../components/RunItem.vue";
 import { api, authHeaders } from "../lib/api.js";
 import { t } from "../lib/i18n.js";
@@ -21,7 +34,6 @@ async function exportCsv() {
 }
 
 async function clearHistory() {
-  if (!window.confirm(t("history.confirmClear"))) return;
   try {
     await api("/api/history", { method: "DELETE" });
     await reloadAll();
@@ -33,19 +45,35 @@ async function clearHistory() {
 </script>
 
 <template>
-  <section>
-    <div class="section-head">
-      <div>
-        <p class="muted">{{ t("history.lead") }}</p>
-      </div>
-      <div class="top-actions">
-        <button type="button" class="ghost" @click="exportCsv">{{ t("action.downloadCsv") }}</button>
-        <button type="button" class="danger" @click="clearHistory">{{ t("action.clearHistory") }}</button>
+  <section class="flex flex-col gap-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <p class="text-sm text-muted-foreground">{{ t("history.lead") }}</p>
+      <div class="flex flex-wrap gap-2">
+        <Button variant="outline" size="lg" @click="exportCsv">
+          <DownloadIcon aria-hidden="true" />{{ t("action.downloadCsv") }}
+        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger as-child>
+            <Button variant="destructive" size="lg" :disabled="Boolean(state.remote.running)">
+              <Trash2Icon aria-hidden="true" />{{ t("action.clearHistory") }}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{{ t("history.confirmClear") }}</AlertDialogTitle>
+              <AlertDialogDescription>{{ t("history.confirmClearNote") }}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{{ t("action.cancel") }}</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" @click="clearHistory">{{ t("action.clearHistory") }}</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
-    <div class="runs">
+    <div class="flex flex-col gap-2">
       <RunItem v-for="run in state.runs" :key="run.id" :run="run" />
-      <p v-if="!state.runs.length" class="empty">{{ t("history.empty") }}</p>
+      <p v-if="!state.runs.length" class="rounded-xl border px-4 py-7 text-muted-foreground">{{ t("history.empty") }}</p>
     </div>
   </section>
 </template>

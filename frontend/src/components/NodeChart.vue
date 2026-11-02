@@ -1,90 +1,141 @@
 <script setup>
-import { onMounted, ref, watch } from "vue";
+import { useResizeObserver } from "@vueuse/core";
+import uPlot from "uplot";
+import "uplot/dist/uPlot.min.css";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { formatTime } from "../lib/format.js";
 import { i18n, t } from "../lib/i18n.js";
+import { theme } from "../lib/theme.js";
+
+const HEIGHT = 240;
+/* Точки между разрывами иначе не видны: у uPlot линия из одного замера пуста. */
+const MAX_DOTTED_ROWS = 120;
 
 const props = defineProps({ rows: { type: Array, required: true } });
-const canvas = ref(null);
+const box = ref(null);
+let plot = null;
 
-function cssColor(name, fallback) {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return value || fallback;
+const rows = computed(() => props.rows.filter((row) => !Number.isNaN(Date.parse(row.tested_at))));
+const hasFailures = computed(() => rows.value.some((row) => !row.ok));
+
+function cssColor(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-function strokeSeries(ctx, points, key, color, pad, plotW, plotH, max) {
-  const coords = [];
-  points.forEach((row, index) => {
-    if (row[key] == null) return;
-    const x = pad.left + (points.length === 1 ? plotW / 2 : (plotW * index) / (points.length - 1));
-    const y = pad.top + plotH - ((row[key] * 8) / 1e6 / max) * plotH;
-    coords.push([x, y, index]);
+function toMbps(bytes) {
+  return bytes == null ? null : (bytes * 8) / 1e6;
+}
+
+function epoch(row) {
+  return Date.parse(row.tested_at) / 1000;
+}
+
+function axisTime(seconds, wide) {
+  const options = wide ? { day: "2-digit", month: "2-digit" } : { hour: "2-digit", minute: "2-digit" };
+  return new Intl.DateTimeFormat(i18n.lang, options).format(new Date(seconds * 1000));
+}
+
+/* На длинном отрезке несколько меток попадают на один день: дату пишем только у первой. */
+function axisLabels(ticks, wide) {
+  const labels = ticks.map((tick) => axisTime(tick, wide));
+  return labels.map((label, index) => (label === labels[index - 1] ? "" : label));
+}
+
+function legendValue(unit) {
+  return (self, value) => (value == null ? "—" : `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${t(unit)}`);
+}
+
+function zeroBased(self, min, max) {
+  return [0, Math.max(1, (max || 0) * 1.1)];
+}
+
+function markFailures(self) {
+  const { ctx, bbox } = self;
+  ctx.save();
+  ctx.fillStyle = cssColor("--destructive");
+  ctx.globalAlpha = 0.28;
+  rows.value.forEach((row, index) => {
+    if (row.ok) return;
+    const x = self.valToPos(self.data[0][index], "x", true);
+    ctx.fillRect(Math.round(x - uPlot.pxRatio), bbox.top, 2 * uPlot.pxRatio, bbox.height);
   });
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  coords.forEach(([x, y, index], position) => {
-    const previous = coords[position - 1];
-    if (!previous || index !== previous[2] + 1) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-  ctx.fillStyle = color;
-  for (const [x, y] of coords) {
-    ctx.beginPath();
-    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  ctx.restore();
+}
+
+function line(label, scale, color, unit) {
+  return {
+    label,
+    scale,
+    stroke: color,
+    width: 2,
+    value: legendValue(unit),
+    points: { show: rows.value.length <= MAX_DOTTED_ROWS, size: 6, fill: color, stroke: color },
+  };
+}
+
+function axis(color, gridColor, extra) {
+  return {
+    stroke: color,
+    font: "11px 'Inter Variable', sans-serif",
+    labelFont: "11px 'Inter Variable', sans-serif",
+    grid: { stroke: gridColor, width: 1 },
+    ticks: { show: false },
+    ...extra,
+  };
 }
 
 function draw() {
-  const el = canvas.value;
-  if (!el) return;
-  const width = el.clientWidth || 640;
-  const height = 220;
-  const dpr = window.devicePixelRatio || 1;
-  el.width = Math.round(width * dpr);
-  el.height = Math.round(height * dpr);
-  const ctx = el.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  const points = props.rows.filter((row) => row.download_bps != null || row.upload_bps != null);
-  if (!points.length) {
-    ctx.fillStyle = cssColor("--muted", "#6e6e6e");
-    ctx.font = "14px sans-serif";
-    ctx.fillText(t("chart.noMeasurements"), 12, 28);
-    return;
-  }
-  const pad = { left: 52, right: 12, top: 16, bottom: 28 };
-  const plotW = width - pad.left - pad.right;
-  const plotH = height - pad.top - pad.bottom;
-  const max = Math.max(
-    1,
-    ...points.flatMap((row) => [row.download_bps, row.upload_bps].filter((value) => value != null).map((value) => (value * 8) / 1e6)),
-  );
-  ctx.strokeStyle = cssColor("--line", "#e3e3e3");
-  ctx.fillStyle = cssColor("--muted", "#6e6e6e");
-  ctx.font = "11px ui-monospace, monospace";
-  ctx.lineWidth = 1;
-  for (let step = 0; step <= 4; step += 1) {
-    const y = pad.top + (plotH * step) / 4;
-    ctx.beginPath();
-    ctx.moveTo(pad.left, y);
-    ctx.lineTo(width - pad.right, y);
-    ctx.stroke();
-    ctx.fillText((max * (1 - step / 4)).toFixed(max >= 10 ? 0 : 1), 6, y + 4);
-  }
-  strokeSeries(ctx, points, "download_bps", cssColor("--ok", "#2f9e62"), pad, plotW, plotH, max);
-  strokeSeries(ctx, points, "upload_bps", cssColor("--red", "#d14332"), pad, plotW, plotH, max);
-  ctx.fillStyle = cssColor("--muted", "#6e6e6e");
-  ctx.fillText(formatTime(points[0].tested_at), pad.left, height - 8);
-  const lastLabel = formatTime(points[points.length - 1].tested_at);
-  ctx.fillText(lastLabel, width - pad.right - ctx.measureText(lastLabel).width, height - 8);
+  plot?.destroy();
+  plot = null;
+  if (!box.value || !rows.value.length) return;
+  const muted = cssColor("--muted-foreground");
+  const grid = cssColor("--border");
+  const times = rows.value.map(epoch);
+  const span = times[times.length - 1] - times[0];
+  plot = new uPlot({
+    width: box.value.clientWidth,
+    height: HEIGHT,
+    cursor: { drag: { x: false, y: false } },
+    scales: {
+      x: { time: true },
+      mbps: { range: zeroBased },
+      ms: { range: zeroBased },
+    },
+    axes: [
+      axis(muted, grid, { values: (self, ticks) => axisLabels(ticks, span > 2 * 86400) }),
+      axis(muted, grid, { scale: "mbps", label: t("unit.mbps"), labelSize: 16, size: 44 }),
+      axis(muted, grid, { scale: "ms", side: 1, label: t("unit.ms"), labelSize: 16, size: 44, grid: { show: false } }),
+    ],
+    series: [
+      { label: t("column.time"), value: (self, value) => (value == null ? "—" : formatTime(new Date(value * 1000).toISOString())) },
+      line(t("dialog.download"), "mbps", cssColor("--chart-download"), "unit.mbps"),
+      line(t("dialog.upload"), "mbps", cssColor("--chart-upload"), "unit.mbps"),
+      line(t("dialog.latency"), "ms", cssColor("--chart-latency"), "unit.ms"),
+    ],
+    hooks: { draw: [markFailures] },
+  }, [
+    times,
+    rows.value.map((row) => toMbps(row.download_bps)),
+    rows.value.map((row) => toMbps(row.upload_bps)),
+    rows.value.map((row) => row.latency_ms ?? null),
+  ], box.value);
 }
 
-onMounted(() => requestAnimationFrame(draw));
-watch(() => [props.rows, i18n.lang], draw);
+useResizeObserver(box, ([entry]) => {
+  if (plot && entry.contentRect.width) plot.setSize({ width: entry.contentRect.width, height: HEIGHT });
+});
+
+onMounted(draw);
+watch(() => [rows.value, i18n.lang, theme.dark], draw, { flush: "post" });
+onBeforeUnmount(() => plot?.destroy());
 </script>
 
 <template>
-  <canvas ref="canvas"></canvas>
+  <p v-if="!rows.length" class="py-8 text-center text-muted-foreground">{{ t("chart.noMeasurements") }}</p>
+  <figure v-else class="m-0 min-w-0">
+    <div ref="box" role="img" :aria-label="t('chart.label')"></div>
+    <figcaption v-if="hasFailures" class="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+      <i class="h-3 w-0.5 bg-destructive" aria-hidden="true"></i>{{ t("chart.failed") }}
+    </figcaption>
+  </figure>
 </template>

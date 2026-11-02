@@ -26,7 +26,7 @@ bababui loads the nodes from a subscription link, measures each one on a schedul
 - **History and charts:** per-node graphs, 48-hour sparklines, and CSV export.
 - **Clear failure states:** a separate marker for a node that is alive when only the speed test failed.
 - **Small footprint:** one container for `amd64` and `arm64`, with an optional password on the interface.
-- **English and Russian interface.**
+- **Works everywhere:** light and dark themes, phone layout, keyboard navigation, and English and Russian.
 
 ## Quick start
 
@@ -111,7 +111,7 @@ To add a language, put a translation next to the others in `static/locales/<code
 
 ## Development
 
-The interface is built with Vue and Vite and lives in `frontend/`. Locales and icons stay in `static/` because both the backend and the build read them.
+The interface is built with Vue, Vite, and Tailwind CSS and lives in `frontend/`. Locales and icons stay in `static/` because both the backend and the build read them. Components in `frontend/src/components/ui` come from [shadcn-vue](https://www.shadcn-vue.com) and are ours to edit. Add more with `npx shadcn-vue@latest add <name>`.
 
 The dev server proxies `/api` to a backend running on `127.0.0.1:8080`:
 
