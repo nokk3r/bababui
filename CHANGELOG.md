@@ -4,7 +4,11 @@
 
 ### RU
 
+- Первая проверка по расписанию больше не зависает на отсчёте в несколько секунд. Срок назначается один раз и доходит до конца, проверка стартует, а следующая ждёт интервал из настроек.
+
 ### EN
+
+- The first scheduled check no longer sticks on a countdown of a few seconds. The deadline is set once and runs out, the check starts, and the next one waits for the interval from settings.
 
 ## 0.4.0 — 2026-11-03
 

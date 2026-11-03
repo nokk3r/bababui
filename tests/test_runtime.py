@@ -136,6 +136,32 @@ class SchedulerTests(DatabaseCase):
         self.assertIsNone(scheduler.next_at)
         self.assertEqual(db.list_runs(1), [])
 
+    def test_first_deadline_stays_put_until_the_run(self):
+        db.save_settings({
+            "subscription_url": "https://example.com/sub",
+            "refresh_before_run": False,
+            "interval_minutes": 1200,
+        })
+        scheduler = Scheduler(Runner())
+        clock = {"now": 1_700_000_000.0}
+
+        def frozen() -> float:
+            return clock["now"]
+
+        with mock.patch("app.scheduler.time.time", side_effect=frozen):
+            asyncio.run(scheduler.tick())
+            first = scheduler.next_at
+            self.assertEqual(first, clock["now"] + 8)
+            clock["now"] += 3
+            asyncio.run(scheduler.tick())
+            self.assertEqual(scheduler.next_at, first)
+            self.assertEqual(db.list_runs(1), [])
+            clock["now"] = first
+            asyncio.run(scheduler.tick())
+
+        self.assertEqual(db.list_runs(1)[0]["trigger"], "schedule")
+        self.assertGreater(scheduler.next_at, time.time() + 1190 * 60)
+
     def test_due_run_is_started_and_remembered(self):
         db.save_settings({"subscription_url": "https://example.com/sub", "refresh_before_run": False})
         db.set_meta("last_schedule_at", "2026-01-01T00:00:00Z")

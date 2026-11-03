@@ -18,6 +18,9 @@ class Scheduler:
     def __init__(self, runner: Runner) -> None:
         self.runner = runner
         self.next_at: float | None = None
+        # Первый запуск назначается один раз. Иначе «через 8 секунд» пересчитывается каждый такт,
+        # срок всё время впереди и проверка по интервалу не начинается.
+        self._first_deadline: float | None = None
         self._stop = False
 
     def stop(self) -> None:
@@ -33,14 +36,23 @@ class Scheduler:
         if not settings["scheduler_enabled"] or not settings["subscription_url"] or self.runner.busy():
             self.next_at = None
             return
-        self.next_at = next_run_at()
+        self.next_at = self._scheduled_at(settings)
         if self.next_at is not None and time.time() >= self.next_at:
             db.set_meta("last_schedule_at", db.utcnow())
+            self._first_deadline = None
             try:
                 await self.runner.begin_and_wait("schedule")
             except Exception:
                 logger.exception("scheduled run failed")
-            self.next_at = next_run_at()
+            self.next_at = self._scheduled_at(settings)
+
+    def _scheduled_at(self, settings: dict) -> float | None:
+        if settings["schedule_mode"] != "cron" and last_started() is None:
+            if self._first_deadline is None:
+                self._first_deadline = time.time() + 8
+            return self._first_deadline
+        self._first_deadline = None
+        return next_run_at()
 
 
 def next_run_at() -> float | None:
