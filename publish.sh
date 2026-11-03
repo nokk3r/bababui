@@ -151,7 +151,7 @@ docker buildx build \
   --platform linux/amd64,linux/arm64 \
   --label "org.opencontainers.image.source=$repo_url" \
   --label "org.opencontainers.image.version=$version" \
-  --label "org.opencontainers.image.licenses=MIT" \
+  --label "org.opencontainers.image.licenses=MIT AND MPL-2.0 AND OFL-1.1" \
   --label "org.opencontainers.image.description=Local speed test for subscription nodes with a web interface" \
   -t "$image:$version" \
   -t "$image:latest" \

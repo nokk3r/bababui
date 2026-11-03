@@ -145,4 +145,4 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-[MIT](LICENSE)
+The application is [MIT](LICENSE). The image also includes Xray (MPL-2.0), Hysteria (MIT), speedtest-go (MIT), and the Inter font (OFL-1.1). Their notices are in [third_party](third_party/NOTICE).

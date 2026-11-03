@@ -1,0 +1,28 @@
+Notices for components distributed with bababui.
+The application itself is MIT: LICENSE in this repository, and
+/usr/local/share/licenses/bababui/LICENSE in the image.
+
+Xray, Hysteria, and speedtest-go versions are the Dockerfile ARGs.
+Inter follows @fontsource-variable/inter in frontend/package-lock.json.
+Debian packages from python:3.12-slim-bookworm keep their notices
+in /usr/share/doc inside the image.
+
+Xray-core 26.10.31
+  License: MPL-2.0 (xray/LICENSE)
+  Source: https://github.com/XTLS/Xray-core/tree/v26.10.31
+
+Hysteria 2.13.0
+  License: MIT (hysteria/LICENSE)
+  Copyright 2023 Toby
+  Source: https://github.com/apernet/hysteria/tree/app/v2.13.0
+
+speedtest-go 1.8.3
+  License: MIT (speedtest-go/LICENSE)
+  Copyright (c) 2015 ITO Shogo
+  Source: https://github.com/showwin/speedtest-go/tree/v1.8.3
+
+Inter 5.3.0
+  License: OFL-1.1 (inter/OFL.txt)
+  Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
+  Files: @fontsource-variable/inter, Cyrillic, Latin, and Latin Extended
+  Source: https://github.com/rsms/inter

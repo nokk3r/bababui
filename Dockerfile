@@ -55,15 +55,24 @@ RUN npm run build
 
 FROM python:3.12-slim-bookworm
 
+# MIT покрывает само приложение. В образе рядом лежат Xray (MPL-2.0),
+# Hysteria и speedtest-go (MIT) и шрифт Inter (OFL-1.1); тексты в third_party/.
+LABEL org.opencontainers.image.source="https://github.com/nokk3r/bababui" \
+      org.opencontainers.image.licenses="MIT AND MPL-2.0 AND OFL-1.1" \
+      org.opencontainers.image.description="Local speed test for subscription nodes with a web interface"
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /usr/local/share/licenses/bababui \
     && useradd --create-home --uid 10001 checker \
     && command -v runuser >/dev/null
 
 COPY --from=bins /usr/local/bin/xray /usr/local/bin/xray
 COPY --from=bins /usr/local/bin/hysteria /usr/local/bin/hysteria
 COPY --from=bins /usr/local/bin/speedtest-go /usr/local/bin/speedtest-go
+COPY third_party/ /usr/local/share/licenses/
+COPY LICENSE /usr/local/share/licenses/bababui/LICENSE
 
 WORKDIR /app
 COPY requirements.txt .
@@ -72,7 +81,7 @@ COPY app ./app
 COPY --from=web /src/frontend/dist ./static
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod 755 /usr/local/bin/docker-entrypoint.sh \
-    && chmod -R a+rX /app/static \
+    && chmod -R a+rX /app/static /usr/local/share/licenses \
     && mkdir -p /data \
     && chown checker:checker /data
 

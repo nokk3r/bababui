@@ -4,7 +4,11 @@
 
 ### RU
 
+- Приложение остаётся MIT. В образ рядом с ним лежат лицензии Xray (MPL-2.0), Hysteria (MIT), speedtest-go (MIT) и шрифта Inter (OFL-1.1): чужие лицензии на код bababui не переходят. Подпись образа — `MIT AND MPL-2.0 AND OFL-1.1`, тексты собраны в `third_party/`.
+
 ### EN
+
+- The application stays MIT. The image ships the licenses for Xray (MPL-2.0), Hysteria (MIT), speedtest-go (MIT), and the Inter font (OFL-1.1) alongside it: those licenses do not extend to the bababui code. The image label is `MIT AND MPL-2.0 AND OFL-1.1`, and the texts live in `third_party/`.
 
 ## 0.4.1 — 2026-11-03
 
