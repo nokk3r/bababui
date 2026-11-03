@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 
-APP_VERSION = "0.4.2"
+APP_VERSION = "0.4.3"
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data")).resolve()
 XRAY_BIN = os.environ.get("XRAY_BIN", "xray")
 HYSTERIA_BIN = os.environ.get("HYSTERIA_BIN", "hysteria")
