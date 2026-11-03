@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/nokk3r/bababui" alt="MIT license"></a>
 </p>
 
-![Overview page with latency, download, and upload for each node](docs/screenshots/overview.png)
+![Overview page in the light and dark themes with node health, latency, download, upload, and recent checks for each node](docs/screenshots/overview.png)
 
 bababui loads the nodes from a subscription link, measures each one on a schedule, and keeps the results in SQLite. You manage everything from a web interface and need nothing on the host except Docker.
 
@@ -23,7 +23,7 @@ bababui loads the nodes from a subscription link, measures each one on a schedul
 - **Real speed through each node:** latency, download, and upload measured by `speedtest-go` through that node.
 - **Wide protocol support:** VLESS, VMess, Trojan, Shadowsocks, WireGuard, and Hysteria2.
 - **Scheduled and manual checks:** every 120 minutes by default, or on demand for all nodes or just one.
-- **History and charts:** per-node graphs, 48-hour sparklines, and CSV export.
+- **History and charts:** per-node graphs, a strip of recent checks for every node, and CSV export.
 - **Clear failure states:** a separate marker for a node that is alive when only the speed test failed.
 - **Small footprint:** one container for `amd64` and `arm64`, with an optional password on the interface.
 - **Works everywhere:** light and dark themes, phone layout, keyboard navigation, and English, Russian, and Chinese.
@@ -66,11 +66,11 @@ docker compose up -d --build
 
 | Node details | Subscription |
 | --- | --- |
-| ![Node details with a speed chart and recent results](docs/screenshots/node.png) | ![Subscription page with the node list](docs/screenshots/subscription.png) |
+| ![Node details with a speed and latency chart and recent results](docs/screenshots/node.png) | ![Subscription page with the node list](docs/screenshots/subscription.png) |
 
 | Check history |
 | --- |
-| ![History page with scheduled and manual runs](docs/screenshots/history.png) |
+| ![History page with scheduled and manual runs, one of them expanded](docs/screenshots/history.png) |
 
 The screenshots show invented nodes and addresses.
 
