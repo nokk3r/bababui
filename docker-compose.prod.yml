@@ -1,6 +1,6 @@
 services:
   bababui:
-    image: nokk3r/bababui:0.4.0
+    image: nokk3r/bababui:0.4.1
     restart: unless-stopped
     ports:
       - "${BIND_HOST:-127.0.0.1}:${PORT:-8080}:8080"
