@@ -5,9 +5,9 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, loginOpen } from "../lib/api.js";
-import { t } from "../lib/i18n.js";
+import { changeLang, i18n, LANGUAGES, t } from "../lib/i18n.js";
 import { reloadAll } from "../store.js";
-import LangSelect from "./LangSelect.vue";
+import OptionSelect from "./OptionSelect.vue";
 
 const password = ref("");
 const error = ref("");
@@ -39,11 +39,16 @@ async function submit() {
         </div>
         <div class="flex flex-col gap-2">
           <Label for="password">{{ t("login.password") }}</Label>
-          <Input id="password" v-model="password" type="password" autocomplete="current-password" required class="h-9" />
+          <Input id="password" v-model="password" type="password" autocomplete="current-password" required />
         </div>
         <p v-if="error" class="text-sm text-destructive" role="alert">{{ error }}</p>
         <Button type="submit" size="lg">{{ t("login.submit") }}</Button>
-        <LangSelect :aria-label="t('settings.general.language')" />
+        <OptionSelect
+          :options="Object.entries(LANGUAGES)"
+          :model-value="i18n.lang"
+          :aria-label="t('settings.general.language')"
+          @update:model-value="changeLang"
+        />
       </form>
     </Card>
   </div>

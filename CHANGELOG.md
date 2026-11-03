@@ -4,6 +4,17 @@
 
 ### RU
 
+- Ход проверки показывается в плавающей панели в углу экрана вместо полосы над таблицей: она не блокирует страницу, видна в любом разделе и сворачивается. В панели проверяемые узлы с этапом, готовые с итогом и скоростью и число узлов в очереди, а после конца — итог прогона. В строке проверяемого узла вместо времени виден этап. `current_ids` в прогрессе стоят в том же порядке, что имена и этапы.
+- Колонка «Последние проверки» вместо «48 ч»: полоска, где столбик — проверка, цвет — её итог, высота — загрузка относительно лучшего замера. В таблице полоска фиксированной ширины на 24 последние проверки, на телефоне — сколько поместится, до 24. Новый `/api/recent` отдаёт последние проверки каждого узла, серия за 48 часов отдаёт `alive`.
+- У графика узла своя легенда и подсказка у курсора в стиле интерфейса. Без наведения легенда показывает последний замер, а подсказка у сбоя показывает его причину. Сбои отмечены точкой у нижней оси.
+- В окне узла причина сбоя идёт отдельной строкой под замером, без цветовых кодов терминала и меток времени, длинный текст сворачивается. Таблица помещается в телефон.
+- Сортировка таблицы запоминается в браузере и не сбрасывается при перезагрузке.
+- На телефоне в списке сортировки есть пункт «Без сортировки», и список больше не показывает ключ, по которому не сортирует.
+- Кнопка «Назад» в браузере переключает разделы, а не уходит со страницы.
+- Неподдерживаемый узел помечен «Протокол не поддерживается», а не «Трафик не идёт».
+- Пока число узлов неизвестно, полоса прогресса бежит без процента. Несколько предупреждений в баннере идут отдельными строками.
+- `/api/state` во время проверки отдаёт `current_ids`, а история узла содержит `alive`.
+- Скорость можно показывать в Мбит/с или МБ/с: выбор в **Настройках → Общие** хранится в браузере. Время везде в 24-часовом формате.
 - Интерфейс перенесён на shadcn-vue, Reka UI и Tailwind CSS. Появилась тёмная тема: системная, светлая или тёмная на выбор в **Настройках → Общие**. Шрифт Inter лежит в образе, внешних запросов нет.
 - На обзоре первой идёт карточка «Работают» с числом рабочих узлов и разбивкой сбоев. Средние значения подписаны числом узлов, по которым они посчитаны.
 - График узла переписан на uPlot: ось идёт по времени, неудачные проверки отмечены на графике, добавлены задержка и значения при наведении.
@@ -11,9 +22,28 @@
 - Сортировка и карточка узла доступны с клавиатуры, статус узла передаётся значком и подписью, контраст текста статусов повышен.
 - В настройках одна кнопка сохранения и сброс изменений. Параллельность и срок хранения истории больше не блокируются при выключенном расписании: они действуют на любой запуск.
 - Кнопка проверки узла отключена, пока идёт другая проверка. Очистка истории подтверждается в диалоге приложения. Без ссылки подписки обзор предлагает её добавить.
+- Зависший узел больше не держит проверку по несколько минут. Перед замером узел проверяется на трафик не дольше 10 секунд, мёртвый сразу помечается сбоем. На одно направление speedtest даётся 25 секунд вместо 120, после таймаута загрузки отдача не запускается.
+- В строке прогресса рядом с узлом показан этап: подключение, проверка трафика, загрузка или отдача.
+- Полоса прогресса движется плавно, а не скачком после каждого узла. speedtest-go не сообщает ход замера, поэтому доля узла оценивается по времени его этапа. Назад полоса не откатывается.
+- В карточке «Работают» нажатие на сегмент полосы или подпись под ней оставляет в списке только узлы с этим статусом. Фильтр статуса есть и рядом с фильтром протокола.
+- Расписание можно задать выражением cron вместо интервала: режим выбирается в **Настройках → Расписание**. Время читается в часовом поясе браузера, пропущенные запуски не догоняются. Подсказка к параллельности переехала в тултип.
+- Вкладка настроек «Проверка» переименована в «Замер», туда же переехала параллельность. Срок хранения истории теперь в **Настройках → Общие**.
+- В истории можно удалить отдельный прогон: кнопка с корзиной в строке, удаление подтверждается. Результаты прогона пропадают из истории узлов и графиков. Идущий прогон удалить нельзя.
+- Проверка начинается с узлов, которые давно не проверялись. Узел, упавший по таймауту, уходит в конец, и следующий запуск не начинается с него снова.
 
 ### EN
 
+- Check progress lives in a floating panel in the corner instead of a bar above the table: it does not block the page, shows on every section, and collapses. It lists nodes being checked with their stage, finished nodes with their result and speed, and how many are queued, then a run summary at the end. The row of a node being checked shows its stage instead of the time. In progress, `current_ids` follow the same order as names and stages.
+- The "Recent checks" column replaces "48 h": a strip with one bar per check, colored by result, with height showing download relative to the best check. In the table the strip has a fixed width for the last 24 checks; on phones it shows as many as fit, up to 24. The new `/api/recent` returns the latest checks of each node, and the 48-hour series returns `alive`.
+- The node chart has its own legend and a tooltip at the cursor that match the interface. Without hovering, the legend shows the latest check, and a failed check shows its reason in the tooltip. Failures are marked with a dot on the bottom axis.
+- In the node dialog, the failure reason sits on its own line under the check, without terminal color codes or log timestamps, and long text collapses. The table fits on a phone.
+- Table sorting is remembered in the browser and survives a reload.
+- On phones the sort list has a "No sorting" option, so it no longer shows a key the list is not sorted by.
+- The browser Back button switches sections instead of leaving the page.
+- An unsupported node is labeled "Protocol not supported" instead of "No traffic".
+- While the node count is unknown, the progress bar runs without a percentage. Several banner warnings appear on separate lines.
+- During a check, `/api/state` returns `current_ids`, and node history includes `alive`.
+- Speed can be shown in Mbps or MB/s: the choice in **Settings → General** is stored in the browser. Times use the 24-hour clock everywhere.
 - The interface moved to shadcn-vue, Reka UI, and Tailwind CSS. There is now a dark theme: pick system, light, or dark in **Settings → General**. The Inter font ships in the image, so nothing is loaded from outside.
 - Overview now opens with a Working card showing the number of working nodes and a breakdown of failures. Averages state how many nodes they cover.
 - The node chart is rewritten on uPlot: the axis follows time, failed checks are marked on the chart, and latency and hover values are added.
@@ -21,6 +51,14 @@
 - Sorting and node details work from the keyboard, node status has an icon and a label, and status text has higher contrast.
 - Settings have one Save button and a way to discard changes. Concurrency and history retention are no longer locked when the schedule is off, because they apply to every run.
 - A node's Check button is disabled while another check is running. Clearing history is confirmed in an app dialog. Without a subscription link, Overview offers to add one.
+- A hanging node no longer holds a check for minutes. Before the speed test, the node gets at most 10 seconds to pass traffic, and a dead node fails right away. Each speedtest direction gets 25 seconds instead of 120, and upload is skipped after a download timeout.
+- The progress line shows each node's stage next to its name: connecting, traffic check, download, or upload.
+- The progress bar moves smoothly instead of jumping after each node. speedtest-go doesn't report progress mid-test, so each node's share is estimated from how long its current stage has run. The bar never moves backward.
+- Clicking a segment of the Working bar or its label below filters the node list to that status. A status filter also sits next to the protocol filter.
+- The schedule can use a cron expression instead of an interval: pick the mode in **Settings → Schedule**. Times use the browser's time zone, and missed runs are not caught up. The concurrency hint moved into a tooltip.
+- The Check settings tab is renamed Measurement and now holds concurrency. History retention moved to **Settings → General**.
+- A single run can be deleted from History with the trash button on its row, after a confirmation. Its results disappear from node history and charts. A run in progress can't be deleted.
+- Checks start with the nodes tested longest ago. A node that timed out moves to the end, so the next run does not start with it again.
 
 ## 0.3.0 — 2026-11-02
 

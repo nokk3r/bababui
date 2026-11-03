@@ -1,4 +1,5 @@
 import { i18n, t } from "./i18n.js";
+import { SPEED_UNITS, units } from "./units.js";
 
 const PROTOCOL_LABEL = {
   vless: "VLESS",
@@ -9,12 +10,32 @@ const PROTOCOL_LABEL = {
   wireguard: "WireGuard",
 };
 
-export function mbps(bps) {
-  if (bps == null || Number.isNaN(Number(bps))) return "—";
-  const value = (Number(bps) * 8) / 1e6;
+export function speedUnit() {
+  return SPEED_UNITS[units.speed].label;
+}
+
+export function toSpeed(bytes) {
+  if (bytes == null || Number.isNaN(Number(bytes))) return null;
+  return Number(bytes) * SPEED_UNITS[units.speed].perByte;
+}
+
+export function roundSpeed(value) {
   if (value >= 100) return value.toFixed(0);
   if (value >= 10) return value.toFixed(1);
   return value.toFixed(2);
+}
+
+export function formatSpeed(bytes) {
+  const value = toSpeed(bytes);
+  return value == null ? "—" : roundSpeed(value);
+}
+
+/* Ошибки Xray и Hysteria приходят как строки лога: цветовые коды терминала и метки времени в интерфейсе только мешают. */
+const TERMINAL_COLOR = /\x1b?\[[0-9;]*m/g;
+const LOG_TIMESTAMP = /\b\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/g;
+
+export function cleanError(text) {
+  return String(text ?? "").replace(TERMINAL_COLOR, "").replace(LOG_TIMESTAMP, "").replace(/\s+/g, " ").trim();
 }
 
 export function formatMs(value) {
@@ -38,6 +59,7 @@ export function formatTime(iso) {
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23",
   }).format(date);
 }
 
@@ -80,7 +102,7 @@ export function resultDot(ok, alive) {
 }
 
 export function nodeDot(node) {
-  if (!node.supported) return "bad";
+  if (!node.supported) return "unsupported";
   if (node.last_ok == null) return "idle";
   return resultDot(node.last_ok, node.last_alive);
 }

@@ -1,5 +1,5 @@
 import { createApp } from "vue";
-import "@fontsource-variable/inter";
+import "./fonts.css";
 import App from "./App.vue";
 import "./app.css";
 import { initI18n } from "./lib/i18n.js";

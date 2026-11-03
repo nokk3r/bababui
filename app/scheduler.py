@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 
 from app import db
+from app.cron import CronError, next_after, parse_cron, zone
 from app.runner import Runner
 
 logger = logging.getLogger("checker.scheduler")
@@ -33,7 +34,7 @@ class Scheduler:
             self.next_at = None
             return
         self.next_at = next_run_at()
-        if time.time() >= self.next_at:
+        if self.next_at is not None and time.time() >= self.next_at:
             db.set_meta("last_schedule_at", db.utcnow())
             try:
                 await self.runner.begin_and_wait("schedule")
@@ -42,14 +43,29 @@ class Scheduler:
             self.next_at = next_run_at()
 
 
-def next_run_at() -> float:
-    interval = max(1, int(db.public_settings()["interval_minutes"])) * 60
-    last = db.last_scheduled_at()
+def next_run_at() -> float | None:
+    settings = db.public_settings()
+    last = last_started()
     now = time.time()
+    if settings["schedule_mode"] == "cron":
+        try:
+            cron = parse_cron(settings["cron_expression"])
+            # Пропущенные запуски не догоняются: после простоя проверка не стартует сразу,
+            # а ждёт ближайшего времени по расписанию. Минута запаса — чтобы не проскочить текущую.
+            return next_after(cron, max(last or 0, now - 60), zone(settings["schedule_timezone"]))
+        except CronError:
+            logger.warning("bad cron expression: %s", settings["cron_expression"])
+            return None
+    if last is None:
+        return now + 8
+    return last + max(1, int(settings["interval_minutes"])) * 60
+
+
+def last_started() -> float | None:
+    last = db.last_scheduled_at()
     if not last:
-        return now + 8
+        return None
     try:
-        started = datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
     except ValueError:
-        return now + 8
-    return started.timestamp() + interval
+        return None

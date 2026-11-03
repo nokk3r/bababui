@@ -56,10 +56,6 @@ async function toggle(node, enabled) {
   }
 }
 
-function rowClick(event, node) {
-  if (event.target.closest("input, label, button")) return;
-  openNode(node.id);
-}
 </script>
 
 <template>
@@ -76,7 +72,7 @@ function rowClick(event, node) {
         <Input
           v-model="state.subQuery"
           type="search"
-          class="h-9 pl-8"
+          class="pl-8"
           :placeholder="t('search.placeholder')"
           :aria-label="t('search.subscription')"
         />
@@ -105,7 +101,7 @@ function rowClick(event, node) {
             :key="node.id"
             class="cursor-pointer"
             :class="{ 'opacity-60': !node.enabled }"
-            @click="rowClick($event, node)"
+            @click="openNode(node.id)"
           >
             <TableCell class="max-w-56 px-3 sm:max-w-96">
               <NodeName
@@ -123,6 +119,7 @@ function rowClick(event, node) {
                 :disabled="!node.supported"
                 :aria-label="node.name"
                 @update:model-value="toggle(node, $event)"
+                @click.stop
               />
             </TableCell>
           </TableRow>

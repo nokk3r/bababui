@@ -45,7 +45,7 @@ class MeasureTests(unittest.TestCase):
         self.assertNotIn("--no-download", first)
         self.assertIn("--no-download", second)
         self.assertIn("--server=42", second)
-        traffic.assert_not_called()
+        traffic.assert_called_once()
 
     def test_upload_timeout_keeps_download(self):
         result, _, _ = run_measure([(0, payload(download=100), ""), (1, "", msg("speedtest_timeout"))])
@@ -54,9 +54,36 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(result.download_bps, 100)
         self.assertEqual(result.error, f"speedtest: {msg('speedtest_timeout')}")
 
-    def test_dead_node_stops_after_first_step(self):
-        result, runs, _ = run_measure([(1, "", "connection refused")], alive=False)
+    def test_stages_follow_measurement(self):
+        stage = mock.Mock()
+        runs = mock.Mock(side_effect=[(0, payload(download=100), ""), (0, payload(upload=50), "")])
+        with mock.patch.object(engines, "run_speedtest", runs), mock.patch.object(
+            engines, "traffic_passes", return_value=True
+        ):
+            measure(1080, SETTINGS, CancelToken(), [], stage)
+        self.assertEqual([call.args[0] for call in stage.call_args_list], ["traffic", "download", "upload"])
+
+    def test_download_timeout_skips_upload(self):
+        result, runs, traffic = run_measure([(1, "", msg("speedtest_timeout"))])
         self.assertFalse(result.ok)
+        self.assertTrue(result.alive)
+        self.assertEqual(result.error, f"speedtest: {msg('speedtest_timeout')}")
+        self.assertEqual(runs.call_count, 1)
+        traffic.assert_called_once()
+
+    def test_dead_node_skips_speedtest(self):
+        result, runs, _ = run_measure([], alive=False)
+        self.assertFalse(result.ok)
+        self.assertIs(result.alive, False)
+        self.assertEqual(result.error, msg("node_no_traffic"))
+        runs.assert_not_called()
+
+    def test_node_dying_mid_test_stops(self):
+        runs = mock.Mock(side_effect=[(1, "", "connection refused")])
+        with mock.patch.object(engines, "run_speedtest", runs), mock.patch.object(
+            engines, "traffic_passes", side_effect=[True, False]
+        ):
+            result = measure(1080, SETTINGS, CancelToken(), [])
         self.assertIs(result.alive, False)
         self.assertEqual(result.error, f"{msg('node_no_traffic')}: connection refused")
         self.assertEqual(runs.call_count, 1)
@@ -174,7 +201,7 @@ class BinaryVersionTests(unittest.TestCase):
         output = "speedtest-go v1.8.3 git-df849ca built at 2026-09-01T06:42:03Z\n"
         with mock.patch("app.engines.subprocess.check_output", return_value=output):
             status = engines.describe_binary("speedtest-go", ["--version"])
-        self.assertEqual(status, {"ok": True, "text": "speedtest-go v1.8.3 git-df849ca"})
+        self.assertEqual(status, {"ok": True, "text": "speedtest-go v1.8.3"})
 
 
 class RemovedTransportTests(unittest.TestCase):

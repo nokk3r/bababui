@@ -113,6 +113,16 @@ To add a language, put a translation next to the others in `static/locales/<code
 
 The interface is built with Vue, Vite, and Tailwind CSS and lives in `frontend/`. Locales and icons stay in `static/` because both the backend and the build read them. Components in `frontend/src/components/ui` come from [shadcn-vue](https://www.shadcn-vue.com) and are ours to edit. Add more with `npx shadcn-vue@latest add <name>`.
 
+Some generated components carry local changes. Running `add --overwrite` resets them, so reapply these afterwards:
+
+- `input/Input.vue` and `select/SelectTrigger.vue`: fields are `h-9` tall.
+- `select/SelectContent.vue`: the list opens below the trigger (`position="popper"`, `align="start"`).
+- `select/SelectContent.vue` and `dropdown-menu/*Content.vue`: a stronger ring and shadow in the dark theme, without the undefined `cn-menu-translucent` class.
+- `dialog/DialogContent.vue`: the close button label is translated.
+- `sonner/Sonner.vue`: imports `vue-sonner/style.css`, without which toasts render unstyled at the bottom of the page, and `--gray2` uses `color-mix`, because the theme colors are hex values.
+
+The CLI also edits project files on every `add`. After it runs, remove the Google Fonts import and the duplicate `@layer base` block it adds to `src/app.css`, and restore `package.json` if it unpinned `cn` or bumped other packages.
+
 The dev server proxies `/api` to a backend running on `127.0.0.1:8080`:
 
 ```bash

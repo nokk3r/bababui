@@ -12,7 +12,10 @@ DEFAULTS: dict[str, str] = {
     "subscription_url": "",
     "subscription_insecure": "1",
     "scheduler_enabled": "1",
+    "schedule_mode": "interval",
     "interval_minutes": "120",
+    "cron_expression": "0 */2 * * *",
+    "schedule_timezone": "",
     "concurrency": "1",
     "tls_insecure_if_no_sni": "1",
     "refresh_before_run": "1",
@@ -42,7 +45,10 @@ FORM_KEYS = [
     "subscription_url",
     "subscription_insecure",
     "scheduler_enabled",
+    "schedule_mode",
     "interval_minutes",
+    "cron_expression",
+    "schedule_timezone",
     "concurrency",
     "tls_insecure_if_no_sni",
     "refresh_before_run",
@@ -303,7 +309,13 @@ def nodes_for_run(node_ids: list[str] | None, include_disabled: bool) -> list[sq
             return []
         clauses.append(f"id IN ({','.join('?' for _ in node_ids)})")
         params.extend(node_ids)
-    sql = f"SELECT * FROM nodes WHERE {' AND '.join(clauses)} ORDER BY name COLLATE NOCASE"
+    # Первыми идут давно не проверенные: остановленный прогон продолжается с непроверенных,
+    # а узел, упавший по таймауту, уходит в конец и не держит следующий запуск.
+    sql = f"""
+        SELECT * FROM nodes WHERE {' AND '.join(clauses)}
+        ORDER BY (SELECT MAX(tested_at) FROM results WHERE results.node_id = nodes.id),
+                 name COLLATE NOCASE
+    """
     with connect() as conn:
         return conn.execute(sql, params).fetchall()
 
@@ -420,7 +432,7 @@ def node_history(node_id: str, limit: int) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT tested_at, latency_ms, download_bps, upload_bps, ok, error
+            SELECT tested_at, latency_ms, download_bps, upload_bps, ok, error, alive
             FROM results
             WHERE node_id=?
             ORDER BY tested_at DESC, id DESC
@@ -435,12 +447,30 @@ def series(since: str) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT node_id, tested_at, download_bps, upload_bps, latency_ms, ok
+            SELECT node_id, tested_at, download_bps, upload_bps, latency_ms, ok, alive
             FROM results
             WHERE tested_at >= ?
             ORDER BY tested_at ASC
             """,
             (since,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def recent_results(per_node: int) -> list[dict]:
+    """Последние проверки каждого узла за любое время: полоска в таблице не должна зависеть от окна в 48 часов."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT node_id, tested_at, download_bps, upload_bps, latency_ms, ok, alive
+            FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY tested_at DESC, id DESC) AS position
+                FROM results
+            )
+            WHERE position <= ?
+            ORDER BY tested_at ASC, id ASC
+            """,
+            (per_node,),
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -462,6 +492,15 @@ def clear_history() -> None:
     with connect() as conn:
         conn.execute("DELETE FROM results")
         conn.execute("DELETE FROM runs")
+
+
+def delete_run(run_id: int) -> bool:
+    """Удаляет прогон с его результатами. Идущий прогон не трогается: в него ещё пишут результаты."""
+    with connect() as conn:
+        deleted = conn.execute("DELETE FROM runs WHERE id=? AND status != 'running'", (run_id,)).rowcount
+        if deleted:
+            conn.execute("DELETE FROM results WHERE run_id=?", (run_id,))
+    return bool(deleted)
 
 
 def purge_old(days: int) -> None:

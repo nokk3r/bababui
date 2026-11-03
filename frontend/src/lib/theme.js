@@ -1,19 +1,12 @@
 import { reactive } from "vue";
+import { readStored, writeStored } from "./storage.js";
 
 export const THEMES = ["system", "light", "dark"];
+/* Тот же ключ читает скрипт в index.html, чтобы поставить тему до первой отрисовки. */
 const STORAGE_KEY = "bababui-theme";
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 
 export const theme = reactive({ mode: "system", dark: false });
-
-function savedMode() {
-  try {
-    const mode = localStorage.getItem(STORAGE_KEY);
-    return THEMES.includes(mode) ? mode : "system";
-  } catch {
-    return "system";
-  }
-}
 
 function apply() {
   theme.dark = theme.mode === "dark" || (theme.mode === "system" && systemDark.matches);
@@ -23,15 +16,12 @@ function apply() {
 export function setTheme(mode) {
   theme.mode = mode;
   apply();
-  try {
-    localStorage.setItem(STORAGE_KEY, mode);
-  } catch {
-    /* выбор темы просто не запомнится */
-  }
+  writeStored(STORAGE_KEY, mode);
 }
 
 export function initTheme() {
-  theme.mode = savedMode();
+  const saved = readStored(STORAGE_KEY);
+  theme.mode = THEMES.includes(saved) ? saved : "system";
   apply();
   systemDark.addEventListener("change", apply);
 }

@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -25,14 +26,19 @@ from app.parser import ParsedNode
 
 logger = logging.getLogger("checker.engines")
 
-# Пинг, список серверов и одно направление. Дольше — процесс убивается.
-SPEEDTEST_TIMEOUT = 120
+# Дольше узел не ждём: ответа нет за это время — значит, он не работает или тормозит.
+NODE_WAIT = 10
+# speedtest-go гонит одно направление до 15 с (captureTime, с CLI не меняется),
+# при ровной скорости останавливается раньше. Сверху NODE_WAIT на список серверов и пинг.
+SPEEDTEST_TIMEOUT = 15 + NODE_WAIT
 # Не зависят от speedtest.net: отвечают — значит, узел пропускает трафик.
 TRAFFIC_URLS = (
     "https://www.gstatic.com/generate_204",
     "https://cp.cloudflare.com/generate_204",
 )
-TRAFFIC_TIMEOUT = 8
+
+# Этап узла для подписи прогресса: connecting, traffic, download, upload.
+Stage = Callable[[str], None]
 
 _ports_lock = threading.Lock()
 _ports_taken: set[int] = set()
@@ -125,14 +131,23 @@ def describe_binary(path: str, args: list[str]) -> dict:
             return {"ok": True, "text": line.split(" (", 1)[0]}
         if line.lower().startswith("version:"):
             return {"ok": True, "text": "Hysteria " + line.split(":", 1)[1].strip()}
+        if line.lower().startswith("speedtest-go "):
+            # «v1.8.3 git-df849ca built at …» — хеш сборки в подписи не нужен.
+            short = line.split(" built at ", 1)[0].split(" git-", 1)[0].strip()
+            return {"ok": True, "text": short}
     return {"ok": True, "text": lines[0].split(" built at ", 1)[0] if lines else path}
 
 
-def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeResult:
+def no_stage(_: str) -> None:
+    pass
+
+
+def test_node(node: ParsedNode, settings: dict, cancel: CancelToken, stage: Stage = no_stage) -> ProbeResult:
     if cancel.cancelled:
         return ProbeResult(error=msg("stopped"))
     if not node.supported or not node.engine:
         return ProbeResult(error=node.reason or msg("protocol_unsupported"))
+    stage("connecting")
     work = Path(tempfile.mkdtemp(prefix="xraychk-"))
     proc: subprocess.Popen | None = None
     logs = LogBuffer()
@@ -174,7 +189,7 @@ def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeRes
         except Exception as exc:
             detail = useful_error(scrub(logs.text(), node.secrets))
             return ProbeResult(error=detail or f"{msg('proxy_failed')}: {exc}")
-        return measure(port, settings, cancel, node.secrets)
+        return measure(port, settings, cancel, node.secrets, stage)
     except FileNotFoundError as exc:
         return ProbeResult(error=msg("executable_not_found", path=exc.filename))
     except Exception as exc:
@@ -187,9 +202,21 @@ def test_node(node: ParsedNode, settings: dict, cancel: CancelToken) -> ProbeRes
         shutil.rmtree(work, ignore_errors=True)
 
 
-def measure(port: int, settings: dict, cancel: CancelToken, secrets: list[str]) -> ProbeResult:
+def measure(
+    port: int,
+    settings: dict,
+    cancel: CancelToken,
+    secrets: list[str],
+    stage: Stage = no_stage,
+) -> ProbeResult:
     if cancel.cancelled:
         return ProbeResult(error=msg("stopped"))
+    # Мёртвый узел отсекается за NODE_WAIT, а не за таймаут speedtest.
+    stage("traffic")
+    if not traffic_passes(port, cancel):
+        if cancel.cancelled:
+            return ProbeResult(error=msg("stopped"))
+        return ProbeResult(error=msg("node_no_traffic"), alive=False)
     download = bool(settings.get("measure_download", True))
     upload = bool(settings.get("measure_upload", True))
     # JSON приходит только в конце запуска. Отдельные запуски не дают таймауту забрать готовое.
@@ -199,6 +226,7 @@ def measure(port: int, settings: dict, cancel: CancelToken, secrets: list[str]) 
     server_id = ""
     alive = True
     for step_download, step_upload in steps:
+        stage("download" if step_download else "upload")
         step, server_id = measure_step(port, step_download, step_upload, server_id, cancel, secrets)
         if cancel.cancelled:
             return ProbeResult(error=msg("stopped"))
@@ -207,6 +235,10 @@ def measure(port: int, settings: dict, cancel: CancelToken, secrets: list[str]) 
             continue
         if step.error not in errors:
             errors.append(step.error)
+        if step.error == msg("speedtest_timeout"):
+            # Трафик идёт, но узел тормозит: второе направление упрётся в тот же таймаут.
+            break
+        stage("traffic")
         alive = traffic_passes(port, cancel)
         if cancel.cancelled:
             return ProbeResult(error=msg("stopped"))
@@ -265,38 +297,46 @@ def merge_step(total: ProbeResult, step: ProbeResult) -> None:
 
 
 def traffic_passes(port: int, cancel: CancelToken) -> bool:
-    for url in TRAFFIC_URLS:
-        cmd = [
-            "curl",
-            "-sS",
-            "-o",
-            "/dev/null",
-            "--max-time",
-            str(TRAFFIC_TIMEOUT),
-            "--socks5-hostname",
-            f"127.0.0.1:{port}",
-            url,
-        ]
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            env=clean_env(),
-        )
-        if not cancel.track(proc):
-            return False
-        try:
-            if proc.wait(timeout=TRAFFIC_TIMEOUT + 2) == 0:
+    """Адреса опрашиваются разом: недоступный не съедает время второго, на всё — NODE_WAIT."""
+    procs: list[subprocess.Popen] = []
+    try:
+        for url in TRAFFIC_URLS:
+            cmd = [
+                "curl",
+                "-sS",
+                "-o",
+                "/dev/null",
+                "--max-time",
+                str(NODE_WAIT),
+                "--socks5-hostname",
+                f"127.0.0.1:{port}",
+                url,
+            ]
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                env=clean_env(),
+            )
+            procs.append(proc)
+            if not cancel.track(proc):
+                return False
+        deadline = time.monotonic() + NODE_WAIT + 1
+        while time.monotonic() < deadline and not cancel.cancelled:
+            codes = [proc.poll() for proc in procs]
+            if 0 in codes:
                 return True
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-        finally:
+            if None not in codes:
+                return False
+            time.sleep(0.1)
+        return False
+    finally:
+        for proc in procs:
             cancel.untrack(proc)
-        if cancel.cancelled:
-            return False
-    return False
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
 
 
 def clean_env() -> dict[str, str]:

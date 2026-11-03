@@ -1,15 +1,18 @@
 <script setup>
+import { InfoIcon } from "@lucide/vue";
 import { computed, reactive, ref, watch } from "vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import LangSelect from "../components/LangSelect.vue";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import OptionSelect from "../components/OptionSelect.vue";
 import SwitchField from "../components/SwitchField.vue";
-import ThemeSelect from "../components/ThemeSelect.vue";
 import { api } from "../lib/api.js";
-import { t } from "../lib/i18n.js";
+import { changeLang, i18n, LANGUAGES, t } from "../lib/i18n.js";
+import { setTheme, theme, THEMES } from "../lib/theme.js";
+import { setSpeedUnit, SPEED_UNITS, units } from "../lib/units.js";
 import { pollSoon, reportError, state, toast } from "../store.js";
 
 const PANES = [
@@ -19,12 +22,24 @@ const PANES = [
   ["check", "settings.check.title"],
 ];
 
+const languageOptions = Object.entries(LANGUAGES);
+const themeOptions = computed(() => THEMES.map((mode) => [mode, t(`theme.${mode}`)]));
+const unitOptions = computed(() => Object.keys(SPEED_UNITS).map((unit) => [unit, t(`speedUnit.${unit}`)]));
+const modeOptions = computed(() => [
+  ["interval", t("settings.schedule.modeInterval")],
+  ["cron", t("settings.schedule.modeCron")],
+]);
+/* Cron считается в поясе браузера: «в 9:30» для человека значит его 9:30, а не UTC контейнера. */
+const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
 const form = reactive({
   subscription_url: "",
   subscription_insecure: false,
   refresh_before_run: false,
   tls_insecure_if_no_sni: false,
+  schedule_mode: "interval",
   interval_minutes: "",
+  cron_expression: "",
   concurrency: "",
   retention_days: "",
   scheduler_enabled: false,
@@ -67,6 +82,8 @@ async function save() {
         ...form,
         subscription_url: String(form.subscription_url).trim(),
         interval_minutes: Number(form.interval_minutes),
+        cron_expression: String(form.cron_expression).trim(),
+        schedule_timezone: browserZone,
         concurrency: Number(form.concurrency),
         retention_days: Number(form.retention_days),
       },
@@ -93,14 +110,22 @@ async function save() {
 
         <TabsContent value="general" class="mt-4 flex flex-col gap-4">
           <p class="text-sm text-muted-foreground">{{ t("settings.general.lead") }}</p>
-          <div class="grid gap-4 sm:grid-cols-2">
+          <div class="flex flex-col gap-4">
             <div class="flex flex-col gap-2">
               <Label for="language">{{ t("settings.general.language") }}</Label>
-              <LangSelect id="language" />
+              <OptionSelect id="language" :options="languageOptions" :model-value="i18n.lang" @update:model-value="changeLang" />
             </div>
             <div class="flex flex-col gap-2">
               <Label for="theme">{{ t("settings.general.theme") }}</Label>
-              <ThemeSelect id="theme" />
+              <OptionSelect id="theme" :options="themeOptions" :model-value="theme.mode" @update:model-value="setTheme" />
+            </div>
+            <div class="flex flex-col gap-2">
+              <Label for="speed-unit">{{ t("settings.general.speedUnit") }}</Label>
+              <OptionSelect id="speed-unit" :options="unitOptions" :model-value="units.speed" @update:model-value="setSpeedUnit" />
+            </div>
+            <div class="flex flex-col gap-2">
+              <Label for="retention_days">{{ t("settings.general.retention") }}</Label>
+              <Input id="retention_days" v-model="form.retention_days" type="number" min="1" max="3650" step="1" />
             </div>
           </div>
         </TabsContent>
@@ -122,19 +147,27 @@ async function save() {
           <p class="text-sm text-muted-foreground">{{ t("settings.schedule.lead") }}</p>
           <SwitchField v-model="form.scheduler_enabled" :label="t('settings.schedule.enabled')" />
           <div class="flex flex-col gap-2">
+            <Label for="schedule_mode">{{ t("settings.schedule.mode") }}</Label>
+            <OptionSelect id="schedule_mode" v-model="form.schedule_mode" :options="modeOptions" :disabled="!form.scheduler_enabled" />
+          </div>
+          <div v-if="form.schedule_mode === 'cron'" class="flex flex-col gap-2">
+            <Label for="cron_expression">{{ t("settings.schedule.cron") }}</Label>
+            <Input
+              id="cron_expression"
+              v-model="form.cron_expression"
+              class="font-mono"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="0 */2 * * *"
+              aria-describedby="cron-hint"
+              :disabled="!form.scheduler_enabled"
+            />
+            <p id="cron-hint" class="text-sm text-muted-foreground">{{ t("settings.schedule.cronHint", { zone: browserZone }) }}</p>
+          </div>
+          <div v-else class="flex flex-col gap-2">
             <Label for="interval_minutes">{{ t("settings.schedule.interval") }}</Label>
-            <Input id="interval_minutes" v-model="form.interval_minutes" type="number" min="1" max="1440" step="1" class="h-9" :disabled="!form.scheduler_enabled" />
+            <Input id="interval_minutes" v-model="form.interval_minutes" type="number" min="1" max="1440" step="1" :disabled="!form.scheduler_enabled" />
           </div>
-          <div class="flex flex-col gap-2">
-            <Label for="concurrency">{{ t("settings.schedule.concurrency") }}</Label>
-            <Input id="concurrency" v-model="form.concurrency" type="number" min="1" max="4" step="1" class="h-9" aria-describedby="concurrency-hint" />
-            <p id="concurrency-hint" class="text-sm text-muted-foreground">{{ t("settings.schedule.concurrencyHint") }}</p>
-          </div>
-          <div class="flex flex-col gap-2">
-            <Label for="retention_days">{{ t("settings.schedule.retention") }}</Label>
-            <Input id="retention_days" v-model="form.retention_days" type="number" min="1" max="3650" step="1" class="h-9" />
-          </div>
-          <p class="rounded-lg border bg-muted px-3 py-2 text-sm text-muted-foreground">{{ estimate }}</p>
         </TabsContent>
 
         <TabsContent value="check" class="mt-4 flex flex-col gap-4">
@@ -146,6 +179,24 @@ async function save() {
           <div class="divide-y">
             <SwitchField v-model="form.measure_download" :label="t('settings.check.measureDownload')" />
             <SwitchField v-model="form.measure_upload" :label="t('settings.check.measureUpload')" />
+          </div>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-1.5">
+              <Label for="concurrency">{{ t("settings.check.concurrency") }}</Label>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <button
+                    type="button"
+                    class="rounded-sm text-muted-foreground hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+                    :aria-label="t('settings.check.concurrencyHint')"
+                  >
+                    <InfoIcon class="size-4" aria-hidden="true" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" class="max-w-64 text-sm">{{ t("settings.check.concurrencyHint") }}</TooltipContent>
+              </Tooltip>
+            </div>
+            <Input id="concurrency" v-model="form.concurrency" type="number" min="1" max="4" step="1" />
           </div>
           <p class="rounded-lg border bg-muted px-3 py-2 text-sm text-muted-foreground">{{ estimate }}</p>
         </TabsContent>

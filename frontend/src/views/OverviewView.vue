@@ -1,5 +1,5 @@
 <script setup>
-import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, Columns3Icon, Loader2Icon, SearchIcon } from "@lucide/vue";
+import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, Columns3Icon, SearchIcon } from "@lucide/vue";
 import { useMediaQuery } from "@vueuse/core";
 import { computed, watch } from "vue";
 import { Button } from "@/components/ui/button";
@@ -14,12 +14,12 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import NodeName from "../components/NodeName.vue";
+import CheckBars from "../components/CheckBars.vue";
 import ProtoBadge from "../components/ProtoBadge.vue";
-import SparkLine from "../components/SparkLine.vue";
 import SpeedValue from "../components/SpeedValue.vue";
 import { formatMs, formatTime, mean, nodeDot, protocolName } from "../lib/format.js";
 import { i18n, t } from "../lib/i18n.js";
-import { COLUMN_KEYS, openNode, openSettings, startRun, state } from "../store.js";
+import { checkingStage, COLUMN_KEYS, openNode, openSettings, setColumn, setSort, SORT_KEYS, startRun, state } from "../store.js";
 
 const COLUMN_LABELS = {
   protocol: "column.protocol",
@@ -33,10 +33,9 @@ const COLUMN_LABELS = {
   action: "column.action",
 };
 
-const SORTABLE = [
-  ["name", "column.node"],
-  ...COLUMN_KEYS.slice(0, 7).map((key) => [key, COLUMN_LABELS[key]]),
-];
+const SORTABLE = SORT_KEYS.map((key) => [key, key === "name" ? "column.node" : COLUMN_LABELS[key]]);
+
+const NO_SORT = "none";
 
 const tableLayout = useMediaQuery("(min-width: 768px)");
 
@@ -45,7 +44,7 @@ const checked = computed(() => (
   state.nodes.filter((node) => node.active && node.supported && node.enabled)
 ));
 const health = computed(() => {
-  const counts = { ok: 0, warn: 0, bad: 0, idle: 0 };
+  const counts = { ok: 0, warn: 0, bad: 0, idle: 0, unsupported: 0 };
   for (const node of checked.value) counts[nodeDot(node)] += 1;
   return counts;
 });
@@ -59,6 +58,21 @@ const healthParts = computed(() => [
   count: health.value[key],
   text: t(label, { value: health.value[key] }),
 })));
+
+const STATUS_KEYS = ["ok", "warn", "bad", "idle"];
+const STATUS_COLORS = { ok: "bg-success", warn: "bg-warning", bad: "bg-destructive", idle: "bg-muted-foreground" };
+
+const segments = computed(() => STATUS_KEYS.filter((key) => health.value[key]).map((key) => ({
+  key,
+  color: STATUS_COLORS[key],
+  count: health.value[key],
+  title: `${t(`filter.${key}`)}: ${health.value[key]}`,
+})));
+
+/* Повторное нажатие на тот же статус снимает фильтр. */
+function toggleStatus(key) {
+  state.status = state.status === key ? "all" : key;
+}
 
 const samples = computed(() => checked.value.filter((node) => node.last_ok));
 const avgLatency = computed(() => mean(samples.value.map((node) => node.latency_ms)));
@@ -100,6 +114,8 @@ const rows = computed(() => {
   const visible = state.nodes.filter((node) => {
     if (!node.active) return false;
     if (state.protocol !== "all" && node.protocol !== state.protocol) return false;
+    /* Как в карточке «Работают»: отключённые узлы в статусах не считаются. */
+    if (state.status !== "all" && !(node.enabled && node.supported && nodeDot(node) === state.status)) return false;
     if (!query) return true;
     return `${node.name} ${node.address} ${node.protocol}`.toLowerCase().includes(query);
   }).map((node) => {
@@ -109,7 +125,7 @@ const rows = computed(() => {
       avg_latency_ms: mean(history.map((row) => (row.ok ? row.latency_ms : null))),
       avg_download_bps: mean(history.map((row) => (row.ok ? row.download_bps : null))),
       avg_upload_bps: mean(history.map((row) => (row.ok ? row.upload_bps : null))),
-      spark: history.slice(-24).map((row) => row.download_bps),
+      spark: state.recent.get(node.id) || [],
     };
   });
   return sortNodes(visible);
@@ -128,26 +144,21 @@ const emptyText = computed(() => {
 const sortColumns = computed(() => SORTABLE.filter(([key]) => key === "name" || state.columns[key]));
 const running = computed(() => state.remote.running);
 
+/* Нажатия по заголовку: по возрастанию, по убыванию, без сортировки. */
 function sortBy(key) {
-  if (state.sortKey !== key || !state.sortDir) {
-    state.sortKey = key;
-    state.sortDir = "asc";
-  } else if (state.sortDir === "asc") {
-    state.sortDir = "desc";
-  } else {
-    state.sortKey = null;
-    state.sortDir = null;
-  }
+  if (state.sortKey !== key || !state.sortDir) setSort(key, "asc");
+  else if (state.sortDir === "asc") setSort(key, "desc");
+  else setSort(null, null);
 }
 
+/* На телефоне заголовков нет, поэтому «без сортировки» — отдельный пункт списка, а не третье нажатие. */
 function setSortKey(key) {
-  state.sortKey = key;
-  state.sortDir ||= "asc";
+  if (key === NO_SORT) setSort(null, null);
+  else setSort(key, state.sortDir || "asc");
 }
 
 function flipSort() {
-  state.sortKey ||= "name";
-  state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+  setSort(state.sortKey, state.sortDir === "asc" ? "desc" : "asc");
 }
 
 function isSorted(key) {
@@ -159,22 +170,15 @@ function ariaSort(key) {
   return state.sortDir === "asc" ? "ascending" : "descending";
 }
 
-function setColumn(key, visible) {
-  state.columns[key] = visible;
-  localStorage.setItem("bababui-columns", JSON.stringify(state.columns));
-}
-
-function isChecking(node) {
-  return (running.value?.current || []).includes(node.name);
+/* Пока узел проверяется, вместо времени последней проверки показываем этап. */
+function activity(node) {
+  const stage = checkingStage(node.id);
+  if (stage === null) return "";
+  return stage ? `${t(`stage.${stage}`)}…` : `${t("phase.checking")}…`;
 }
 
 function checkNode(node) {
   startRun({ node_ids: [node.id], include_disabled: true });
-}
-
-function rowClick(event, node) {
-  if (event.target.closest("input, label, button")) return;
-  openNode(node.id);
 }
 </script>
 
@@ -186,11 +190,32 @@ function rowClick(event, node) {
         <strong class="text-3xl font-semibold tracking-tight tabular">
           {{ health.ok }}<small class="ml-1.5 text-sm font-normal tracking-normal text-muted-foreground">{{ t("stat.outOf", { total: checked.length }) }}</small>
         </strong>
-        <div v-if="checked.length" class="mt-1 flex h-1.5 gap-0.5 overflow-hidden rounded-full" aria-hidden="true">
-          <i class="bg-success" :style="{ flexGrow: health.ok }"></i>
-          <i v-for="part in healthParts" :key="part.key" :class="part.color" :style="{ flexGrow: part.count }"></i>
+        <div v-if="checked.length" class="mt-1 flex h-1.5 gap-0.5">
+          <!-- Псевдоэлемент расширяет зону нажатия: сама полоса всего 6 px. -->
+          <button
+            v-for="segment in segments"
+            :key="segment.key"
+            type="button"
+            class="relative h-full min-w-1 cursor-pointer transition-opacity first:rounded-l-full last:rounded-r-full before:absolute before:inset-x-0 before:-inset-y-2 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+            :class="[segment.color, state.status !== 'all' && state.status !== segment.key ? 'opacity-30' : '']"
+            :style="{ flexGrow: segment.count }"
+            :aria-label="segment.title"
+            :aria-pressed="state.status === segment.key"
+            @click="toggleStatus(segment.key)"
+          ></button>
         </div>
-        <p class="min-h-4 text-xs text-muted-foreground">{{ healthParts.map((part) => part.text).join(" · ") }}</p>
+        <p class="min-h-4 text-xs text-muted-foreground">
+          <template v-for="(part, index) in healthParts" :key="part.key">
+            <span v-if="index" aria-hidden="true"> · </span>
+            <button
+              type="button"
+              class="cursor-pointer rounded-sm underline-offset-2 hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+              :class="state.status === part.key ? 'text-foreground underline' : ''"
+              :aria-pressed="state.status === part.key"
+              @click="toggleStatus(part.key)"
+            >{{ part.text }}</button>
+          </template>
+        </p>
       </Card>
       <Card class="gap-1 px-4 py-3.5">
         <p class="text-muted-foreground">{{ t("stat.avgLatency") }}</p>
@@ -202,12 +227,12 @@ function rowClick(event, node) {
       </Card>
       <Card class="gap-1 px-4 py-3.5">
         <p class="text-muted-foreground">{{ t("stat.avgDownload") }}</p>
-        <strong class="text-3xl font-semibold tracking-tight tabular [&_small]:ml-1.5 [&_small]:text-sm [&_small]:tracking-normal"><SpeedValue :bps="avgDownload" /></strong>
+        <strong class="text-3xl font-semibold tracking-tight tabular"><SpeedValue :bps="avgDownload" size="lg" /></strong>
         <p class="min-h-4 text-xs text-muted-foreground">{{ basedOn }}</p>
       </Card>
       <Card class="col-span-2 gap-1 px-4 py-3.5 sm:col-span-1">
         <p class="text-muted-foreground">{{ t("stat.avgUpload") }}</p>
-        <strong class="text-3xl font-semibold tracking-tight tabular [&_small]:ml-1.5 [&_small]:text-sm [&_small]:tracking-normal"><SpeedValue :bps="avgUpload" /></strong>
+        <strong class="text-3xl font-semibold tracking-tight tabular"><SpeedValue :bps="avgUpload" size="lg" /></strong>
         <p class="min-h-4 text-xs text-muted-foreground">{{ basedOn }}</p>
       </Card>
     </div>
@@ -218,18 +243,27 @@ function rowClick(event, node) {
         <Input
           v-model="state.query"
           type="search"
-          class="h-9 pl-8"
+          class="pl-8"
           :placeholder="t('search.placeholder')"
           :aria-label="t('search.node')"
         />
       </div>
       <Select v-model="state.protocol">
-        <SelectTrigger class="data-[size=default]:h-9" :aria-label="t('filter.protocol')">
+        <SelectTrigger :aria-label="t('filter.protocol')">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">{{ t("filter.allProtocols") }}</SelectItem>
           <SelectItem v-for="protocol in protocols" :key="protocol" :value="protocol">{{ protocolName(protocol) }}</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select v-model="state.status">
+        <SelectTrigger :aria-label="t('filter.status')">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">{{ t("filter.allStatuses") }}</SelectItem>
+          <SelectItem v-for="key in STATUS_KEYS" :key="key" :value="key">{{ t(`filter.${key}`) }}</SelectItem>
         </SelectContent>
       </Select>
 
@@ -240,27 +274,29 @@ function rowClick(event, node) {
               <Columns3Icon aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" class="w-auto min-w-44">
             <DropdownMenuCheckboxItem
               v-for="key in COLUMN_KEYS"
               :key="key"
               :model-value="state.columns[key]"
               @update:model-value="setColumn(key, $event)"
+              class="whitespace-nowrap"
               @select.prevent
             >{{ t(COLUMN_LABELS[key]) }}</DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </template>
       <template v-else>
-        <Select :model-value="state.sortKey || 'name'" @update:model-value="setSortKey">
-          <SelectTrigger class="data-[size=default]:h-9" :aria-label="t('sort.label')">
+        <Select :model-value="state.sortKey || NO_SORT" @update:model-value="setSortKey">
+          <SelectTrigger :aria-label="t('sort.label')">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem :value="NO_SORT">{{ t("sort.none") }}</SelectItem>
             <SelectItem v-for="[key, label] in SORTABLE" :key="key" :value="key">{{ t(label) }}</SelectItem>
           </SelectContent>
         </Select>
-        <Button variant="outline" size="icon-lg" :aria-label="t('sort.toggle')" @click="flipSort">
+        <Button variant="outline" size="icon-lg" :aria-label="t('sort.toggle')" :disabled="!state.sortKey" @click="flipSort">
           <ArrowUpIcon v-if="state.sortDir === 'asc'" aria-hidden="true" />
           <ArrowDownIcon v-else aria-hidden="true" />
         </Button>
@@ -305,13 +341,14 @@ function rowClick(event, node) {
             :key="node.id"
             class="group cursor-pointer hover:bg-muted"
             :class="{ 'opacity-60': !node.enabled }"
-            @click="rowClick($event, node)"
+            @click="openNode(node.id)"
           >
-            <TableCell class="sticky left-0 z-10 max-w-64 bg-background px-3 group-hover:bg-muted">
+            <TableCell class="sticky left-0 z-10 max-w-64 bg-background px-3 transition-colors group-hover:bg-muted">
               <NodeName
                 :dot="nodeDot(node)"
                 :name="node.name"
                 :sub="node.last_tested_at ? formatTime(node.last_tested_at) : ''"
+                :activity="activity(node)"
                 interactive
                 @open="openNode(node.id)"
               />
@@ -323,10 +360,10 @@ function rowClick(event, node) {
             <TableCell v-if="state.columns.avg_latency_ms" class="px-3 tabular">{{ formatMs(node.avg_latency_ms) }}</TableCell>
             <TableCell v-if="state.columns.avg_download_bps" class="px-3 tabular"><SpeedValue :bps="node.avg_download_bps" /></TableCell>
             <TableCell v-if="state.columns.avg_upload_bps" class="px-3 tabular"><SpeedValue :bps="node.avg_upload_bps" /></TableCell>
-            <TableCell v-if="state.columns.spark" class="px-3"><SparkLine :values="node.spark" /></TableCell>
+            <!-- 213 px — ровно RECENT_CHECKS столбиков: 24 по 6 px и зазоры по 3 px. -->
+            <TableCell v-if="state.columns.spark" class="px-3"><CheckBars :rows="node.spark" class="w-[213px]" /></TableCell>
             <TableCell v-if="state.columns.action" class="px-3 text-right">
-              <Button variant="outline" :disabled="!node.supported || Boolean(running)" @click="checkNode(node)">
-                <Loader2Icon v-if="isChecking(node)" class="animate-spin" aria-hidden="true" />
+              <Button variant="outline" :disabled="!node.supported || Boolean(running)" @click.stop="checkNode(node)">
                 {{ t("action.check") }}
               </Button>
             </TableCell>
@@ -347,6 +384,7 @@ function rowClick(event, node) {
             :dot="nodeDot(node)"
             :name="node.name"
             :sub="node.last_tested_at ? formatTime(node.last_tested_at) : ''"
+            :activity="activity(node)"
             interactive
             @open="openNode(node.id)"
           />
@@ -367,9 +405,8 @@ function rowClick(event, node) {
           </div>
         </dl>
         <div class="flex items-center justify-between gap-3">
-          <SparkLine :values="node.spark" />
+          <CheckBars :rows="node.spark" class="min-w-0 flex-1" />
           <Button variant="outline" size="lg" :disabled="!node.supported || Boolean(running)" @click="checkNode(node)">
-            <Loader2Icon v-if="isChecking(node)" class="animate-spin" aria-hidden="true" />
             {{ t("action.check") }}
           </Button>
         </div>

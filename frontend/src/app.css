@@ -150,19 +150,21 @@
   font-variant-numeric: tabular-nums;
 }
 
-.u-legend {
-  margin-top: 8px;
-  color: var(--muted-foreground);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: left;
+
+.progress-indeterminate {
+  animation: progress-slide 1.4s ease-in-out infinite;
 }
-.u-legend .u-series th {
-  font-weight: 500;
+@keyframes progress-slide {
+  from { left: -33%; }
+  to { left: 100%; }
 }
-.u-legend .u-marker {
-  border-radius: 99px;
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate {
+    left: 0;
+    width: 100%;
+    opacity: 0.35;
+    animation: none;
+  }
 }
 
 .brand-mark {

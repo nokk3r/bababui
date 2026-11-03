@@ -7,18 +7,21 @@ import csv
 import hmac
 import io
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app import db, subscription
 from app.config import APP_VERSION, LOG_LEVEL, STATIC_DIR, WEB_PASSWORD
+from app.cron import CronError, next_after, parse_cron, zone
 from app.engines import binary_status
 from app.i18n import msg, render
 from app.runner import Runner
@@ -46,7 +49,10 @@ class SettingsIn(BaseModel):
     subscription_url: str = ""
     subscription_insecure: bool
     scheduler_enabled: bool
+    schedule_mode: Literal["interval", "cron"] = "interval"
     interval_minutes: int = Field(ge=1, le=1440)
+    cron_expression: str = "0 */2 * * *"
+    schedule_timezone: str = ""
     concurrency: int = Field(ge=1, le=4)
     tls_insecure_if_no_sni: bool
     refresh_before_run: bool
@@ -62,6 +68,17 @@ class SettingsIn(BaseModel):
             if item and not item.lower().startswith(("http://", "https://")):
                 raise ValueError(msg("invalid_url_scheme"))
         return value.strip()
+
+    @model_validator(mode="after")
+    def cron_runs(self) -> "SettingsIn":
+        self.cron_expression = " ".join(self.cron_expression.split())
+        # Выражение проверяется, только когда включено: в режиме интервала поле может быть недописанным.
+        if self.schedule_mode == "cron":
+            try:
+                next_after(parse_cron(self.cron_expression), time.time(), zone(self.schedule_timezone))
+            except CronError as exc:
+                raise ValueError(str(exc)) from exc
+        return self
 
 
 class RunIn(BaseModel):
@@ -145,6 +162,8 @@ def state(request: Request):
     runs = db.list_runs(1)
     return {
         "running": request.app.state.runner.progress,
+        # Часы сервера: интерфейс считает длительность этапов от них, а не от часов браузера.
+        "server_time": time.time(),
         "next_run_at": _iso(next_at),
         "scheduler_enabled": public["scheduler_enabled"],
         "last_refresh_at": raw.get("last_refresh_at") or None,
@@ -215,6 +234,11 @@ def series(hours: int = 48):
     return db.series(since)
 
 
+@app.get("/api/recent", dependencies=[Depends(require_auth)])
+def recent(per_node: int = 60):
+    return db.recent_results(min(max(per_node, 1), 200))
+
+
 @app.post("/api/runs", dependencies=[Depends(require_auth)])
 async def start_run(body: RunIn, request: Request):
     rows = db.nodes_for_run(body.node_ids, body.include_disabled)
@@ -243,6 +267,16 @@ def run_detail(run_id: int):
     if item is None:
         raise HTTPException(status_code=404, detail=msg("run_not_found"))
     return item
+
+
+@app.delete("/api/runs/{run_id}", dependencies=[Depends(require_auth)])
+def delete_run(run_id: int, request: Request):
+    progress = request.app.state.runner.progress
+    if progress and progress.get("run_id") == run_id:
+        raise HTTPException(status_code=409, detail=msg("delete_running_run"))
+    if not db.delete_run(run_id):
+        raise HTTPException(status_code=404, detail=msg("run_not_found"))
+    return {"ok": True}
 
 
 @app.delete("/api/history", dependencies=[Depends(require_auth)])

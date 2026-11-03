@@ -3,6 +3,7 @@ import base64
 import dataclasses
 import importlib.util
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -83,6 +84,36 @@ class NodeIdentityTests(DatabaseCase):
         self.assertEqual({row["id"] for row in db.list_nodes()}, {plain.id, node.id})
 
 
+class RunOrderTests(DatabaseCase):
+    def test_least_recently_checked_go_first(self):
+        nodes = [parse_link(vless(f"1.1.1.{i}", name)) for i, name in enumerate(("a", "b", "c"))]
+        db.sync_nodes(nodes)
+        run_id = db.create_run("manual", 2)
+        db.insert_result(run_id, nodes[0].id, ProbeResult(error="таймаут"))
+        self.assertEqual([row["name"] for row in db.nodes_for_run(None, False)], ["b", "c", "a"])
+
+
+class DeleteRunTests(DatabaseCase):
+    def test_only_that_run_and_its_results_go(self):
+        node = parse_link(vless("1.1.1.1", "x"))
+        db.sync_nodes([node])
+        keep, drop = db.create_run("manual", 1), db.create_run("manual", 1)
+        for run_id in (keep, drop):
+            db.insert_result(run_id, node.id, ProbeResult(ok=True, download_bps=float(run_id)))
+            db.finish_run(run_id, "done", 1, 0)
+
+        self.assertTrue(db.delete_run(drop))
+
+        self.assertEqual([run["id"] for run in db.list_runs(10)], [keep])
+        self.assertEqual([row["download_bps"] for row in db.node_history(node.id, 10)], [float(keep)])
+        self.assertFalse(db.delete_run(drop))
+
+    def test_running_run_is_kept(self):
+        run_id = db.create_run("manual", 1)
+        self.assertFalse(db.delete_run(run_id))
+        self.assertEqual(db.list_runs(1)[0]["id"], run_id)
+
+
 class SchedulerTests(DatabaseCase):
     def test_manual_run_does_not_shift_schedule(self):
         db.set_meta("last_schedule_at", "2026-01-01T00:00:00Z")
@@ -120,7 +151,7 @@ class CancelTests(DatabaseCase):
         db.sync_nodes([node])
         db.insert_result(db.create_run("manual", 1), node.id, ProbeResult(ok=True, download_bps=5.0))
 
-        def stopped(_node, _settings, token):
+        def stopped(_node, _settings, token, _stage):
             token.cancel()
             return ProbeResult(error="остановлено")
 
@@ -136,6 +167,83 @@ class CancelTests(DatabaseCase):
         self.assertTrue(row["last_ok"])
         self.assertEqual(row["download_bps"], 5.0)
         self.assertEqual(db.list_runs(1)[0]["status"], "cancelled")
+
+
+class ProgressTests(DatabaseCase):
+    def test_nodes_with_same_name_differ_by_id(self):
+        db.save_settings({"refresh_before_run": False})
+        nodes = [parse_link(vless("1.1.1.1", "same")), parse_link(vless("2.2.2.2", "same"))]
+        db.sync_nodes(nodes)
+        runner = Runner()
+        seen = []
+
+        def probe(_node, _settings, _token, _stage):
+            seen.append((list(runner.progress["current"]), list(runner.progress["current_ids"])))
+            return ProbeResult(ok=True, download_bps=1.0)
+
+        async def run():
+            await runner.begin("manual", None, False)
+            await runner._task
+
+        with mock.patch("app.runner.test_node", probe):
+            asyncio.run(run())
+
+        self.assertEqual(sorted(ids[0] for _, ids in seen), sorted(node.id for node in nodes))
+        self.assertTrue(all(names == ["same"] for names, _ in seen))
+        self.assertIn("alive", db.node_history(nodes[0].id, 5)[0])
+        self.assertIn("alive", db.series("2000-01-01T00:00:00Z")[0])
+
+
+class RecentResultsTests(DatabaseCase):
+    def test_keeps_last_checks_of_each_node_in_time_order(self):
+        nodes = [parse_link(vless("1.1.1.1", "a")), parse_link(vless("2.2.2.2", "b"))]
+        db.sync_nodes(nodes)
+        run = db.create_run("manual", 2)
+        for speed in (1.0, 2.0, 3.0):
+            db.insert_result(run, nodes[0].id, ProbeResult(ok=True, download_bps=speed))
+        db.insert_result(run, nodes[1].id, ProbeResult(ok=False, alive=True))
+
+        rows = db.recent_results(2)
+
+        first = [row["download_bps"] for row in rows if row["node_id"] == nodes[0].id]
+        self.assertEqual(first, [2.0, 3.0])
+        second = [row for row in rows if row["node_id"] == nodes[1].id]
+        self.assertEqual(len(second), 1)
+        self.assertTrue(second[0]["alive"])
+
+
+class StageTests(DatabaseCase):
+    def test_node_stage_is_published_next_to_name(self):
+        db.save_settings({"refresh_before_run": False})
+        db.sync_nodes([parse_link(vless("1.1.1.1", "x"))])
+        release = threading.Event()
+
+        def probe(_node, _settings, _token, stage):
+            stage("download")
+            release.wait(5)
+            return ProbeResult(ok=True)
+
+        async def run():
+            runner = Runner()
+            await runner.begin("manual", None, False)
+            seen = None
+            for _ in range(100):
+                await asyncio.sleep(0.02)
+                progress = runner.progress or {}
+                # Сразу после старта узла этап пустой: ждём, пока дойдёт сообщённый из потока.
+                if progress.get("current_stages") == ["download"]:
+                    seen = (progress["current"], progress["current_stages"], progress["current_stage_started"])
+                    break
+            release.set()
+            await runner._task
+            return seen
+
+        with mock.patch("app.runner.test_node", probe):
+            before = time.time()
+            names, stages, started = asyncio.run(run())
+        self.assertEqual((names, stages), (["x"], ["download"]))
+        self.assertEqual(len(started), 1)
+        self.assertGreaterEqual(started[0], before)
 
 
 @unittest.skipUnless(importlib.util.find_spec("fastapi"), "нужен fastapi")

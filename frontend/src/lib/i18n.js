@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import { readStored, writeStored } from "./storage.js";
 
 export const LANGUAGES = { en: "English", ru: "Русский" };
 const SOURCE_LANG = "en";
@@ -8,12 +9,8 @@ const SERVER_MARKER = /\[\[([a-z0-9_]+)(?:\|(\{.*?\}))?\]\]/g;
 export const i18n = reactive({ lang: SOURCE_LANG, messages: {}, source: {} });
 
 function savedLang() {
-  try {
-    const lang = localStorage.getItem(LANG_STORAGE_KEY);
-    return lang in LANGUAGES ? lang : SOURCE_LANG;
-  } catch {
-    return SOURCE_LANG;
-  }
+  const lang = readStored(LANG_STORAGE_KEY);
+  return lang in LANGUAGES ? lang : SOURCE_LANG;
 }
 
 async function fetchLocale(lang) {
@@ -56,12 +53,13 @@ export function tMsg(text) {
 export async function setLang(lang) {
   i18n.messages = lang === SOURCE_LANG ? i18n.source : await fetchLocale(lang);
   i18n.lang = lang;
-  try {
-    localStorage.setItem(LANG_STORAGE_KEY, lang);
-  } catch {
-    /* выбор языка просто не запомнится */
-  }
+  writeStored(LANG_STORAGE_KEY, lang);
   document.documentElement.lang = lang;
+}
+
+/* Для переключателей: если локаль не загрузилась, остаётся прежний язык. */
+export function changeLang(lang) {
+  setLang(lang).catch(() => {});
 }
 
 export async function initI18n() {

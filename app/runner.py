@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from app import db, subscription
-from app.engines import CancelToken, ProbeResult, test_node
+from app.engines import CancelToken, ProbeResult, Stage, test_node
 from app.i18n import msg, render
 from app.parser import parse_link
 from app.subscription import SubscriptionError
@@ -43,6 +44,9 @@ class Runner:
             "ok": 0,
             "fail": 0,
             "current": [],
+            "current_ids": [],
+            "current_stages": [],
+            "current_stage_started": [],
             "phase": "preparing",
             "started_at": db.utcnow(),
         }
@@ -111,6 +115,9 @@ class Runner:
             "ok": 0,
             "fail": 0,
             "current": [],
+            "current_ids": [],
+            "current_stages": [],
+            "current_stage_started": [],
             "phase": "checking",
             "started_at": db.utcnow(),
         }
@@ -126,21 +133,40 @@ class Runner:
             if refresh_error:
                 error = f"{msg('subscription_not_refreshed')}: {refresh_error}"
             semaphore = asyncio.Semaphore(max(1, int(settings["concurrency"])))
-            current: set[str] = set()
+            # Имена идут в подпись прогресса, id нужны интерфейсу: имена в подписке могут повторяться.
+            current: dict[str, str] = {}
+            stages: dict[str, str] = {}
+            # Начало текущего этапа узла: по нему интерфейс досчитывает полосу между опросами.
+            started: dict[str, float] = {}
+            loop = asyncio.get_running_loop()
+
+            def set_stage(node_id: str, stage: str) -> None:
+                # Этап мог прийти из потока уже после того, как узел закончен.
+                if node_id in current:
+                    stages[node_id] = stage
+                    started[node_id] = time.time()
+                    self._publish(current, stages, started, ok_count, fail_count)
 
             async def one(row) -> None:
                 nonlocal ok_count, fail_count
                 async with semaphore:
                     if token.cancelled:
                         return
-                    current.add(row["name"])
-                    self._publish(current, ok_count, fail_count)
+                    current[row["id"]] = row["name"]
+                    started[row["id"]] = time.time()
+                    self._publish(current, stages, started, ok_count, fail_count)
+
+                    def stage(name: str) -> None:
+                        loop.call_soon_threadsafe(set_stage, row["id"], name)
+
                     try:
-                        probe = await self._probe(row, settings, token)
+                        probe = await self._probe(row, settings, token, stage)
                         if token.cancelled and not probe.ok:
                             # Прерванный замер ничего не говорит об узле.
-                            current.discard(row["name"])
-                            self._publish(current, ok_count, fail_count)
+                            current.pop(row["id"], None)
+                            stages.pop(row["id"], None)
+                            started.pop(row["id"], None)
+                            self._publish(current, stages, started, ok_count, fail_count)
                             return
                         db.insert_result(run_id, row["id"], probe)
                     except Exception as exc:
@@ -154,8 +180,10 @@ class Runner:
                         ok_count += 1
                     else:
                         fail_count += 1
-                    current.discard(row["name"])
-                    self._publish(current, ok_count, fail_count)
+                    current.pop(row["id"], None)
+                    stages.pop(row["id"], None)
+                    started.pop(row["id"], None)
+                    self._publish(current, stages, started, ok_count, fail_count)
 
             await asyncio.gather(*(one(row) for row in rows))
             if token.cancelled:
@@ -171,14 +199,14 @@ class Runner:
             except Exception:
                 logger.exception("purge failed")
 
-    async def _probe(self, row, settings: dict, token: CancelToken) -> ProbeResult:
+    async def _probe(self, row, settings: dict, token: CancelToken, stage: Stage) -> ProbeResult:
         try:
             node = parse_link(row["link"], insecure_if_no_sni=settings["tls_insecure_if_no_sni"])
         except Exception as exc:
             return ProbeResult(error=f"{msg('link_parse_failed')}: {exc}")
         logger.info("probe %s via %s", row["name"], node.engine or node.protocol)
         try:
-            return await asyncio.to_thread(test_node, node, settings, token)
+            return await asyncio.to_thread(test_node, node, settings, token, stage)
         except Exception as exc:
             logger.exception("probe crashed for %s", row["name"])
             return ProbeResult(error=str(exc)[:300])
@@ -187,10 +215,22 @@ class Runner:
         if self.progress is not None:
             self.progress["phase"] = phase
 
-    def _publish(self, current: set[str], ok_count: int, fail_count: int) -> None:
+    def _publish(
+        self,
+        current: dict[str, str],
+        stages: dict[str, str],
+        started: dict[str, float],
+        ok_count: int,
+        fail_count: int,
+    ) -> None:
         if self.progress is None:
             return
-        self.progress["current"] = sorted(current)
+        order = sorted(current, key=lambda node_id: (current[node_id], node_id))
+        self.progress["current"] = [current[node_id] for node_id in order]
+        # id, этап и время начала этапа стоят на той же позиции, что и имя в current.
+        self.progress["current_ids"] = order
+        self.progress["current_stages"] = [stages.get(node_id, "") for node_id in order]
+        self.progress["current_stage_started"] = [started.get(node_id) for node_id in order]
         self.progress["done"] = ok_count + fail_count
         self.progress["ok"] = ok_count
         self.progress["fail"] = fail_count
