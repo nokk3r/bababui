@@ -1,5 +1,6 @@
 <script setup>
 import { Loader2Icon } from "@lucide/vue";
+import { suppressRepeatSelection } from "../lib/pointer.js";
 import StatusIcon from "./StatusIcon.vue";
 
 defineProps({
@@ -19,7 +20,8 @@ defineEmits(["open"]);
       <button
         v-if="interactive"
         type="button"
-        class="block max-w-full truncate rounded-sm text-left font-medium hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+        class="block max-w-full truncate rounded-sm text-left font-medium select-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+        @mousedown="suppressRepeatSelection"
         @click.stop="$emit('open')"
       >{{ name }}</button>
       <b v-else class="block truncate font-medium">{{ name }}</b>

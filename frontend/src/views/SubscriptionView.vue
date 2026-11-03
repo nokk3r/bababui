@@ -11,6 +11,7 @@ import NodeName from "../components/NodeName.vue";
 import ProtoBadge from "../components/ProtoBadge.vue";
 import { api } from "../lib/api.js";
 import { nodeDot } from "../lib/format.js";
+import { suppressRepeatSelection } from "../lib/pointer.js";
 import { i18n, t } from "../lib/i18n.js";
 import { openNode, reloadAll, reportError, state, toast } from "../store.js";
 
@@ -86,7 +87,7 @@ async function toggle(node, enabled) {
         <Button variant="outline" size="lg" @click="setAll(false)">{{ t("action.disableAll") }}</Button>
       </div>
     </div>
-    <div class="overflow-hidden rounded-xl border">
+    <div class="overflow-hidden rounded-xl border select-none" @mousedown="suppressRepeatSelection">
       <Table>
         <TableHeader>
           <TableRow class="hover:bg-transparent">
@@ -99,7 +100,7 @@ async function toggle(node, enabled) {
           <TableRow
             v-for="node in rows"
             :key="node.id"
-            class="cursor-pointer"
+            class="cursor-pointer select-none"
             :class="{ 'opacity-60': !node.enabled }"
             @click="openNode(node.id)"
           >

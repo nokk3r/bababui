@@ -18,6 +18,7 @@ import CheckBars from "../components/CheckBars.vue";
 import ProtoBadge from "../components/ProtoBadge.vue";
 import SpeedValue from "../components/SpeedValue.vue";
 import { formatMs, formatTime, mean, nodeDot, protocolName } from "../lib/format.js";
+import { suppressRepeatSelection } from "../lib/pointer.js";
 import { i18n, t } from "../lib/i18n.js";
 import { checkingStage, COLUMN_KEYS, openNode, openSettings, setColumn, setSort, SORT_KEYS, startRun, state } from "../store.js";
 
@@ -209,9 +210,10 @@ function checkNode(node) {
             <span v-if="index" aria-hidden="true"> · </span>
             <button
               type="button"
-              class="cursor-pointer rounded-sm underline-offset-2 hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+              class="cursor-pointer rounded-sm underline-offset-2 select-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
               :class="state.status === part.key ? 'text-foreground underline' : ''"
               :aria-pressed="state.status === part.key"
+              @mousedown="suppressRepeatSelection"
               @click="toggleStatus(part.key)"
             >{{ part.text }}</button>
           </template>
@@ -308,7 +310,7 @@ function checkNode(node) {
       <Button v-if="noSubscription" size="lg" @click="openSettings('subscription')">{{ t("action.addSubscription") }}</Button>
     </div>
 
-    <div v-else-if="tableLayout" class="overflow-hidden rounded-xl border">
+    <div v-else-if="tableLayout" class="overflow-hidden rounded-xl border select-none" @mousedown="suppressRepeatSelection">
       <Table>
         <TableHeader>
           <TableRow class="hover:bg-transparent">
@@ -321,7 +323,7 @@ function checkNode(node) {
             >
               <button
                 type="button"
-                class="inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+                class="inline-flex items-center gap-1 rounded-sm select-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
                 :class="isSorted(key) ? 'text-foreground' : ''"
                 @click="sortBy(key)"
               >
@@ -339,7 +341,7 @@ function checkNode(node) {
           <TableRow
             v-for="node in rows"
             :key="node.id"
-            class="group cursor-pointer hover:bg-muted"
+            class="group cursor-pointer select-none hover:bg-muted"
             :class="{ 'opacity-60': !node.enabled }"
             @click="openNode(node.id)"
           >

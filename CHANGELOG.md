@@ -4,10 +4,12 @@
 
 ### RU
 
+- Повторные нажатия по строке узла, заголовку сортировки и фильтру статуса больше не выделяют текст.
 - В интерфейсе появился упрощённый китайский: переключатель в настройках и на странице входа. Иероглифы берутся из системного шрифта и в образ не входят.
 
 ### EN
 
+- Repeated clicks on a node row, a sort header, or the status filter no longer select the text.
 - The interface adds Simplified Chinese, from the language switcher in settings and on the sign-in page. Ideographs come from a system font and are not shipped in the image.
 
 ## 0.4.2 — 2026-11-03
