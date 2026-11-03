@@ -26,7 +26,7 @@ bababui loads the nodes from a subscription link, measures each one on a schedul
 - **History and charts:** per-node graphs, 48-hour sparklines, and CSV export.
 - **Clear failure states:** a separate marker for a node that is alive when only the speed test failed.
 - **Small footprint:** one container for `amd64` and `arm64`, with an optional password on the interface.
-- **Works everywhere:** light and dark themes, phone layout, keyboard navigation, and English and Russian.
+- **Works everywhere:** light and dark themes, phone layout, keyboard navigation, and English, Russian, and Chinese.
 
 ## Quick start
 
@@ -105,7 +105,7 @@ Both directions are measured by default, one node at a time. History is kept for
 
 ## Languages
 
-The interface is in English by default, with Russian available in **Settings → General** and on the sign-in page. The choice is saved in the browser.
+The interface is in English by default, with Russian and Chinese available in **Settings → General** and on the sign-in page. The choice is saved in the browser. Chinese characters come from a system font.
 
 To add a language, put a translation next to the others in `static/locales/<code>.json`, using `en.json` as the source, and add it to `LANGUAGES` in `frontend/src/lib/i18n.js`. Keys ending in `_one`, `_few`, `_many`, or `_other` are plural forms. The backend stores no text: errors are sent as markers like `[[stopped]]` and translated in the browser through the `server.` keys. CSV files are always in English.
 

@@ -1,7 +1,7 @@
 import { reactive } from "vue";
 import { readStored, writeStored } from "./storage.js";
 
-export const LANGUAGES = { en: "English", ru: "Русский" };
+export const LANGUAGES = { en: "English", ru: "Русский", zh: "中文" };
 const SOURCE_LANG = "en";
 const LANG_STORAGE_KEY = "bababui-lang";
 const SERVER_MARKER = /\[\[([a-z0-9_]+)(?:\|(\{.*?\}))?\]\]/g;

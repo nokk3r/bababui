@@ -71,7 +71,7 @@ const estimate = computed(() => {
   const parts = [t("estimate.latency")];
   if (form.measure_download) parts.push(t("estimate.download"));
   if (form.measure_upload) parts.push(t("estimate.upload"));
-  return t("estimate.measuring", { parts: parts.join(", ") });
+  return t("estimate.measuring", { parts: parts.join(t("estimate.listSeparator")) });
 });
 
 async function save() {

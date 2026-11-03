@@ -128,8 +128,8 @@ function line(series, color) {
 function axis(color, gridColor, extra) {
   return {
     stroke: color,
-    font: "11px 'Inter Variable', sans-serif",
-    labelFont: "11px 'Inter Variable', sans-serif",
+    font: "11px 'Inter Variable', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif",
+    labelFont: "11px 'Inter Variable', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif",
     grid: { stroke: gridColor, width: 1 },
     ticks: { show: false },
     ...extra,

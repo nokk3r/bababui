@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-sans: "Inter Variable", "Segoe UI", "Helvetica Neue", sans-serif;
+    --font-sans: "Inter Variable", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", "Helvetica Neue", sans-serif;
     --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
     --color-success: var(--success);
     --color-warning: var(--warning);

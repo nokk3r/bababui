@@ -122,6 +122,7 @@
   "settings.check.note": "Latency is an HTTP ping. Download and upload run as separate stages. The speedtest.net server is chosen by the node's exit address. The data volume isn't known in advance and depends on connection speed.",
   "settings.check.measureDownload": "Measure download speed",
   "settings.check.measureUpload": "Measure upload speed",
+  "estimate.listSeparator": ", ",
   "estimate.measuring": "Measuring: {parts}. Data used per run depends on connection speed.",
   "estimate.noNodes": "No enabled nodes.",
   "estimate.latency": "latency",

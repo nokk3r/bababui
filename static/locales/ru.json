@@ -124,6 +124,7 @@
   "settings.check.note": "Отклик — HTTP-пинг. Входящая и исходящая идут отдельными этапами. Сервер speedtest.net выбирается по адресу выхода узла. Объём заранее не известен и зависит от скорости канала.",
   "settings.check.measureDownload": "Измерять входящую скорость",
   "settings.check.measureUpload": "Измерять исходящую скорость",
+  "estimate.listSeparator": ", ",
   "estimate.measuring": "В замере: {parts}. Объём за прогон зависит от скорости канала.",
   "estimate.noNodes": "Нет включённых узлов.",
   "estimate.latency": "отклик",

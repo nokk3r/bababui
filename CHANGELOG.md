@@ -4,7 +4,11 @@
 
 ### RU
 
+- В интерфейсе появился упрощённый китайский: переключатель в настройках и на странице входа. Иероглифы берутся из системного шрифта и в образ не входят.
+
 ### EN
+
+- The interface adds Simplified Chinese, from the language switcher in settings and on the sign-in page. Ideographs come from a system font and are not shipped in the image.
 
 ## 0.4.2 — 2026-11-03
 

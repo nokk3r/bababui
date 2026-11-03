@@ -248,7 +248,7 @@ function checkNode(node) {
           :aria-label="t('search.node')"
         />
       </div>
-      <Select v-model="state.protocol">
+      <Select :key="`protocol-${i18n.lang}`" v-model="state.protocol">
         <SelectTrigger :aria-label="t('filter.protocol')">
           <SelectValue />
         </SelectTrigger>
@@ -257,7 +257,7 @@ function checkNode(node) {
           <SelectItem v-for="protocol in protocols" :key="protocol" :value="protocol">{{ protocolName(protocol) }}</SelectItem>
         </SelectContent>
       </Select>
-      <Select v-model="state.status">
+      <Select :key="`status-${i18n.lang}`" v-model="state.status">
         <SelectTrigger :aria-label="t('filter.status')">
           <SelectValue />
         </SelectTrigger>
@@ -287,7 +287,7 @@ function checkNode(node) {
         </DropdownMenu>
       </template>
       <template v-else>
-        <Select :model-value="state.sortKey || NO_SORT" @update:model-value="setSortKey">
+        <Select :key="`sort-${i18n.lang}`" :model-value="state.sortKey || NO_SORT" @update:model-value="setSortKey">
           <SelectTrigger :aria-label="t('sort.label')">
             <SelectValue />
           </SelectTrigger>
