@@ -77,19 +77,13 @@ class NextTests(unittest.TestCase):
 
 
 class SchedulerCronTests(unittest.TestCase):
-    def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        patcher = mock.patch.object(db, "DATA_DIR", Path(folder.name))
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        db.init_db()
-        db.save_settings({"schedule_mode": "cron", "cron_expression": "0 3 * * *", "schedule_timezone": ""})
+    def source(self, **values) -> dict:
+        base = {"id": 1, "schedule_mode": "cron", "cron_expression": "0 3 * * *", "schedule_timezone": "",
+                "interval_minutes": 120, "last_scheduled_at": ""}
+        return {**base, **values}
 
     def next_at(self, now: str, last: str = "") -> str:
-        db.set_meta("last_schedule_at", last)
-        with mock.patch("app.scheduler.time.time", return_value=at(now)):
-            stamp = next_run_at()
+        stamp = next_run_at(self.source(last_scheduled_at=last), at(now))
         return datetime.fromtimestamp(stamp, UTC).strftime("%Y-%m-%d %H:%M")
 
     def test_missed_run_is_not_caught_up(self):
@@ -102,32 +96,19 @@ class SchedulerCronTests(unittest.TestCase):
         self.assertEqual(self.next_at("2026-11-03 03:00:20", "2026-11-03T03:00:00Z"), "2026-11-04 03:00")
 
     def test_bad_expression_stops_schedule(self):
-        db.save_settings({"cron_expression": "nope"})
-        self.assertIsNone(next_run_at())
+        self.assertIsNone(next_run_at(self.source(cron_expression="nope")))
 
     def test_interval_mode_is_unchanged(self):
-        db.save_settings({"schedule_mode": "interval", "interval_minutes": 60})
-        db.set_meta("last_schedule_at", "2026-11-03T03:00:00Z")
-        self.assertEqual(next_run_at(), at("2026-11-03 04:00:00"))
+        source = self.source(schedule_mode="interval", interval_minutes=60, last_scheduled_at="2026-11-03T03:00:00Z")
+        self.assertEqual(next_run_at(source), at("2026-11-03 04:00:00"))
 
 
 @unittest.skipUnless(importlib.util.find_spec("fastapi"), "нужен fastapi")
 class SettingsValidationTests(unittest.TestCase):
     def settings(self, **values):
-        from app.main import SettingsIn
+        from app.main import SourceIn
 
-        base = {
-            "subscription_insecure": True,
-            "scheduler_enabled": True,
-            "interval_minutes": 60,
-            "concurrency": 1,
-            "tls_insecure_if_no_sni": True,
-            "refresh_before_run": True,
-            "measure_download": True,
-            "measure_upload": True,
-            "retention_days": 30,
-        }
-        return SettingsIn(**{**base, **values})
+        return SourceIn(kind="group", **values)
 
     def test_cron_mode_checks_expression(self):
         from pydantic import ValidationError

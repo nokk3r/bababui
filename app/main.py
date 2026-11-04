@@ -24,6 +24,7 @@ from app.config import APP_VERSION, LOG_LEVEL, STATIC_DIR, WEB_PASSWORD
 from app.cron import CronError, next_after, parse_cron, zone
 from app.engines import binary_status
 from app.i18n import msg, render
+from app.parser import is_node_link
 from app.runner import Runner
 from app.scheduler import Scheduler
 from app.subscription import SubscriptionError
@@ -44,46 +45,64 @@ def require_auth(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail=msg("auth_required"))
 
 
-class SettingsIn(BaseModel):
+class SourceIn(BaseModel):
+    """Подписка — один адрес, который скачивается. Группа — ссылки на узлы, по одной на строку."""
+
     model_config = ConfigDict(extra="forbid")
-    subscription_url: str = ""
-    subscription_insecure: bool
-    scheduler_enabled: bool
+    kind: Literal["subscription", "group"]
+    name: str = Field(default="", max_length=80)
+    url: str = ""
+    links: str = ""
+    insecure: bool = True
+    schedule_enabled: bool = True
     schedule_mode: Literal["interval", "cron"] = "interval"
-    interval_minutes: int = Field(ge=1, le=1440)
+    # До недели: группу можно проверять хоть раз в сутки, хоть раз в несколько дней.
+    interval_minutes: int = Field(default=120, ge=1, le=10080)
     cron_expression: str = "0 */2 * * *"
     schedule_timezone: str = ""
-    concurrency: int = Field(ge=1, le=4)
-    tls_insecure_if_no_sni: bool
-    refresh_before_run: bool
-    measure_download: bool
-    measure_upload: bool
-    retention_days: int = Field(ge=1, le=3650)
-
-    @field_validator("subscription_url")
-    @classmethod
-    def subscription_lines(cls, value: str) -> str:
-        for line in value.splitlines():
-            item = line.strip()
-            if item and not item.lower().startswith(("http://", "https://")):
-                raise ValueError(msg("invalid_url_scheme"))
-        return value.strip()
+    refresh_before_run: bool = True
 
     @model_validator(mode="after")
-    def cron_runs(self) -> "SettingsIn":
+    def content(self) -> "SourceIn":
         self.cron_expression = " ".join(self.cron_expression.split())
-        # Выражение проверяется, только когда включено: в режиме интервала поле может быть недописанным.
+        # Выражение проверяется, только когда выбрано: в режиме интервала поле может быть недописанным.
         if self.schedule_mode == "cron":
             try:
                 next_after(parse_cron(self.cron_expression), time.time(), zone(self.schedule_timezone))
             except CronError as exc:
                 raise ValueError(str(exc)) from exc
+        self.name = " ".join(self.name.split())
+        if self.kind == "subscription":
+            self.url = self.url.strip()
+            self.links = ""
+            if not self.url.lower().startswith(("http://", "https://")) or any(ch.isspace() for ch in self.url):
+                raise ValueError(msg("invalid_url_scheme"))
+        else:
+            self.url = ""
+            lines = [line.strip() for line in self.links.splitlines() if line.strip()]
+            for number, line in enumerate(lines, 1):
+                if not is_node_link(line):
+                    raise ValueError(msg("invalid_node_link", line=number))
+            self.links = "\n".join(lines)
         return self
+
+
+class SettingsIn(BaseModel):
+    """Общие настройки. Расписание у каждого источника своё и правится вместе с ним."""
+
+    model_config = ConfigDict(extra="forbid")
+    concurrency: int = Field(ge=1, le=4)
+    tls_insecure_if_no_sni: bool
+    measure_download: bool
+    measure_upload: bool
+    retention_days: int = Field(ge=1, le=3650)
 
 
 class RunIn(BaseModel):
     node_ids: list[str] | None = None
     include_disabled: bool = False
+    # Проверка одного или нескольких источников с экрана подписок: только их включённые узлы.
+    source_ids: list[int] | None = None
 
 
 class EnabledIn(BaseModel):
@@ -98,10 +117,14 @@ class NoCacheStatic(StaticFiles):
 
 
 def _safe_refresh() -> None:
+    if not db.has_sources():
+        return
     try:
-        subscription.refresh()
+        _count, errors = subscription.refresh_all()
     except SubscriptionError as exc:
-        logger.warning("startup refresh: %s", render(str(exc)))
+        errors = [str(exc)]
+    for error in errors:
+        logger.warning("startup refresh: %s", render(error))
 
 
 @asynccontextmanager
@@ -156,8 +179,7 @@ def health(request: Request):
 
 @app.get("/api/state", dependencies=[Depends(require_auth)])
 def state(request: Request):
-    raw = db.get_raw_settings()
-    public = db.public_settings(raw)
+    sources = db.list_sources()
     next_at = request.app.state.scheduler.next_at
     runs = db.list_runs(1)
     return {
@@ -165,12 +187,13 @@ def state(request: Request):
         # Часы сервера: интерфейс считает длительность этапов от них, а не от часов браузера.
         "server_time": time.time(),
         "next_run_at": _iso(next_at),
-        "scheduler_enabled": public["scheduler_enabled"],
-        "last_refresh_at": raw.get("last_refresh_at") or None,
-        "last_refresh_error": raw.get("last_refresh_error") or "",
-        "userinfo": subscription.userinfo_view(raw.get("subscription_userinfo") or ""),
+        # Чьё расписание наступит первым: подпись под обратным отсчётом.
+        "next_sources": request.app.state.scheduler.next_sources,
+        # Ошибки источников для баннера: на других экранах строк источников не видно.
+        "last_refresh_error": "; ".join(
+            f"{subscription.source_label(source)}: {source['error']}" for source in sources if source["error"]
+        ),
         "versions": request.app.state.versions,
-        "interval_minutes": public["interval_minutes"],
         "last_run": runs[0] if runs else None,
     }
 
@@ -185,20 +208,77 @@ def put_settings(body: SettingsIn):
     return db.save_settings(body.model_dump())
 
 
-@app.post("/api/scheduler", dependencies=[Depends(require_auth)])
-def set_scheduler(body: EnabledIn):
-    current = db.public_settings()
-    current["scheduler_enabled"] = body.enabled
-    return db.save_settings(current)
+def _source_view(source: dict, request: Request | None = None) -> dict:
+    scheduler = request.app.state.scheduler if request is not None else None
+    return {
+        **source,
+        "userinfo": subscription.userinfo_view(source["userinfo"]),
+        "next_run_at": _iso(scheduler.plan.get(source["id"])) if scheduler else None,
+        "idle": bool(scheduler and source["id"] in scheduler.idle),
+    }
 
 
-@app.post("/api/subscription/refresh", dependencies=[Depends(require_auth)])
-def refresh_subscription():
+def _schedule(body: SourceIn) -> dict:
+    return {key: getattr(body, key) for key in db.SCHEDULE_FIELDS}
+
+
+def _existing_source(source_id: int) -> dict:
+    source = db.get_source(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail=msg("source_not_found"))
+    return source
+
+
+@app.get("/api/sources", dependencies=[Depends(require_auth)])
+def get_sources(request: Request):
+    request.app.state.scheduler.update_plan()
+    return [_source_view(source, request) for source in db.list_sources()]
+
+
+@app.post("/api/sources", dependencies=[Depends(require_auth)])
+def create_source(body: SourceIn):
+    source_id = db.create_source(body.kind, body.name, body.url, body.links, body.insecure, **_schedule(body))
+    return _source_view(_existing_source(source_id))
+
+
+@app.put("/api/sources/{source_id}", dependencies=[Depends(require_auth)])
+def update_source(source_id: int, body: SourceIn):
+    if _existing_source(source_id)["kind"] != body.kind:
+        raise HTTPException(status_code=400, detail=msg("check_fields"))
+    db.update_source(source_id, body.name, body.url, body.links, body.insecure, **_schedule(body))
+    return _source_view(_existing_source(source_id))
+
+
+@app.delete("/api/sources/{source_id}", dependencies=[Depends(require_auth)])
+def delete_source(source_id: int):
+    if not db.delete_source(source_id):
+        raise HTTPException(status_code=404, detail=msg("source_not_found"))
+    return {"ok": True}
+
+
+@app.post("/api/sources/refresh", dependencies=[Depends(require_auth)])
+def refresh_sources():
     try:
-        count = subscription.refresh()
+        count, errors = subscription.refresh_all()
+    except SubscriptionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"count": count, "errors": errors}
+
+
+@app.post("/api/sources/{source_id}/refresh", dependencies=[Depends(require_auth)])
+def refresh_source(source_id: int):
+    _existing_source(source_id)
+    try:
+        count = subscription.refresh_source(source_id)
     except SubscriptionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"count": count}
+
+
+@app.post("/api/sources/{source_id}/enabled", dependencies=[Depends(require_auth)])
+def set_source_enabled(source_id: int, body: EnabledIn):
+    _existing_source(source_id)
+    return {"count": db.set_source_enabled(source_id, body.enabled)}
 
 
 @app.get("/api/nodes", dependencies=[Depends(require_auth)])
@@ -241,10 +321,10 @@ def recent(per_node: int = 60):
 
 @app.post("/api/runs", dependencies=[Depends(require_auth)])
 async def start_run(body: RunIn, request: Request):
-    rows = db.nodes_for_run(body.node_ids, body.include_disabled)
+    rows = db.nodes_for_run(body.node_ids, body.include_disabled, body.source_ids)
     if not rows:
         raise HTTPException(status_code=400, detail=msg("no_nodes_hint"))
-    started = await request.app.state.runner.begin("manual", body.node_ids, body.include_disabled)
+    started = await request.app.state.runner.begin("manual", body.node_ids, body.include_disabled, body.source_ids)
     if not started:
         raise HTTPException(status_code=409, detail=msg("check_in_progress"))
     return {"ok": True}
@@ -277,6 +357,11 @@ def delete_run(run_id: int, request: Request):
     if not db.delete_run(run_id):
         raise HTTPException(status_code=404, detail=msg("run_not_found"))
     return {"ok": True}
+
+
+@app.get("/api/history/stats", dependencies=[Depends(require_auth)])
+def get_history_stats():
+    return db.history_stats()
 
 
 @app.delete("/api/history", dependencies=[Depends(require_auth)])

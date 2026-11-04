@@ -66,6 +66,27 @@ export function setColumn(key, visible) {
 
 const initialSort = loadSort();
 
+/* Какие источники раскрыты на экране подписок: переживает перезагрузку. */
+const OPEN_SOURCES_KEY = "bababui-open-sources";
+
+function loadOpenSources() {
+  try {
+    const saved = JSON.parse(readStored(OPEN_SOURCES_KEY) || "null");
+    if (Array.isArray(saved)) return new Set(saved.map(String));
+  } catch {
+    /* битая запись в браузере не должна ломать экран */
+  }
+  return null;
+}
+
+export function setSourceOpen(key, open) {
+  const next = new Set(state.openSources || []);
+  if (open) next.add(key);
+  else next.delete(key);
+  state.openSources = next;
+  writeStored(OPEN_SOURCES_KEY, JSON.stringify([...next]));
+}
+
 export const state = reactive({
   nodes: [],
   series: new Map(),
@@ -81,6 +102,10 @@ export const state = reactive({
   status: "all",
   showInactive: false,
   subQuery: "",
+  sources: [],
+  refreshing: null,
+  sourceDialog: null,
+  openSources: loadOpenSources(),
   columns: loadColumns(),
   dialog: null,
   settingsPane: "general",
@@ -122,11 +147,6 @@ export function checkingStage(nodeId) {
   return run.current_stages?.[index] || "";
 }
 
-export function openSettings(pane) {
-  state.settingsPane = pane;
-  setView("settings");
-}
-
 function runKey(remote) {
   const run = remote.last_run;
   return run ? `${run.id}:${run.status}` : "";
@@ -145,20 +165,48 @@ function byNode(rows) {
   return grouped;
 }
 
+/* Обновление источников одно на всё приложение: state.refreshing — id обновляемого источника или "all",
+   по нему крутится нужная иконка, а остальные кнопки ждут. Без id обновляются все источники.
+   Возвращает true, если список узлов пришёл; ошибка остаётся у источника и видна в его строке. */
+export async function refreshSources(sourceId = null) {
+  state.refreshing = sourceId ?? "all";
+  try {
+    const path = sourceId == null ? "/api/sources/refresh" : `/api/sources/${sourceId}/refresh`;
+    const result = await api(path, { method: "POST" });
+    toast(t("toast.subscriptionUpdated", { count: result.count }));
+    if (result.errors?.length) toast(t("toast.sourcesFailed", { count: result.errors.length }));
+    return true;
+  } catch (error) {
+    reportError(error);
+    return false;
+  } finally {
+    /* И после сбоя: у источника появилась ошибка, а в баннере — причина. */
+    await reloadAll().catch(() => {});
+    state.refreshing = null;
+  }
+}
+
+/* Диалог источника открывается и с экрана подписок, и с пустого обзора. */
+export function openSourceDialog(kind, id = null) {
+  state.sourceDialog = { kind, id };
+}
+
 export async function reloadAll() {
-  const [remote, nodes, series, recent, runs, settings] = await Promise.all([
+  const [remote, nodes, series, recent, runs, settings, sources] = await Promise.all([
     api("/api/state"),
     api("/api/nodes"),
     api("/api/series?hours=48"),
     api(`/api/recent?per_node=${RECENT_CHECKS}`),
     api("/api/runs?limit=30"),
     api("/api/settings"),
+    api("/api/sources"),
   ]);
   seenRun = runKey(remote);
   state.remote = remote;
   state.nodes = nodes;
   state.runs = runs;
   state.settings = settings;
+  state.sources = sources;
   state.series = byNode(series);
   state.recent = byNode(recent);
 }

@@ -1,11 +1,11 @@
 <script setup>
-import { ChevronDownIcon, Loader2Icon, XIcon } from "@lucide/vue";
+import { ChevronDownIcon, Loader2Icon, SquareIcon, XIcon } from "@lucide/vue";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { nodeDot } from "../lib/format.js";
 import { t } from "../lib/i18n.js";
-import { state } from "../store.js";
+import { state, stopRun } from "../store.js";
 import SpeedValue from "./SpeedValue.vue";
 import StatusIcon from "./StatusIcon.vue";
 
@@ -20,6 +20,7 @@ const summary = ref(null);
 let summaryTimer = null;
 
 const run = computed(() => state.remote.running);
+const stopping = computed(() => run.value?.phase === "stopping");
 const title = computed(() => {
   const phase = run.value?.phase || "checking";
   return phase === "checking" ? t("runPanel.title") : t(`phase.${phase}`);
@@ -125,6 +126,10 @@ onBeforeUnmount(() => clearTimeout(summaryTimer));
           </li>
         </ul>
         <p v-if="waiting" class="mt-2 text-xs text-muted-foreground">{{ t("runPanel.waiting", { count: waiting }) }}</p>
+        <!-- Кнопка остановки живёт здесь: панель видна на любом экране, пока идёт проверка. -->
+        <Button variant="outline" size="sm" class="mt-3 w-full" :disabled="stopping" @click="stopRun">
+          <SquareIcon aria-hidden="true" />{{ t("action.stop") }}
+        </Button>
       </template>
 
       <div v-else-if="summary" class="flex items-start justify-between gap-3">

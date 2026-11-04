@@ -12,10 +12,13 @@ from urllib.parse import unquote
 from app.i18n import msg
 
 # parse_qs превращает «+» в пробел и ломает ключи WireGuard и пароли.
-URI_RE = re.compile(
-    r"(?:vless|vmess|trojan|ss|hysteria2|hy2|wireguard|wg)://[^\s]+",
-    re.IGNORECASE,
-)
+NODE_SCHEMES = ("vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "wireguard", "wg")
+URI_RE = re.compile(rf"(?:{'|'.join(NODE_SCHEMES)})://[^\s]+", re.IGNORECASE)
+
+
+def is_node_link(line: str) -> bool:
+    """Строка в поле подписок — ссылка на отдельный узел, а не адрес, который надо скачать."""
+    return bool(URI_RE.fullmatch(line.strip()))
 
 # Xray убрал эти транспорты: такой конфиг не запустится.
 REMOVED_NETWORKS = {"http": "HTTP/2", "quic": "QUIC"}

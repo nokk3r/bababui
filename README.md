@@ -28,6 +28,18 @@ bababui loads the nodes from a subscription link, measures each one on a schedul
 - **Small footprint:** one container for `amd64` and `arm64`, with an optional password on the interface.
 - **Works everywhere:** light and dark themes, phone layout, keyboard navigation, and English, Russian, and Chinese.
 
+## Screenshots
+
+| Node details | Subscription |
+| --- | --- |
+| ![Node details with a speed and latency chart and recent results](docs/screenshots/node.png) | ![Subscription page with the node list](docs/screenshots/subscription.png) |
+
+| Check history |
+| --- |
+| ![History page with scheduled and manual runs, one of them expanded](docs/screenshots/history.png) |
+
+The screenshots show invented nodes and addresses.
+
 ## Quick start
 
 Start the container:
@@ -41,7 +53,7 @@ docker run -d --name bababui \
   nokk3r/bababui:latest
 ```
 
-Open <http://127.0.0.1:8080> and add your subscription link in **Settings**. The first check starts about 8 seconds after a restart if the link is already saved, then follows the interval from the settings.
+Open <http://127.0.0.1:8080> and add a subscription or a group of your own nodes on the **Subscriptions** page. The first check starts about 8 seconds after a restart if the link is already saved, then follows the interval from the settings.
 
 ### Docker Compose
 
@@ -61,18 +73,6 @@ cd bababui
 cp .env.example .env
 docker compose up -d --build
 ```
-
-## Screenshots
-
-| Node details | Subscription |
-| --- | --- |
-| ![Node details with a speed and latency chart and recent results](docs/screenshots/node.png) | ![Subscription page with the node list](docs/screenshots/subscription.png) |
-
-| Check history |
-| --- |
-| ![History page with scheduled and manual runs, one of them expanded](docs/screenshots/history.png) |
-
-The screenshots show invented nodes and addresses.
 
 ## Configuration
 

@@ -75,9 +75,26 @@ function countdown(iso) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+/* «Через сколько» для срока: пусто, если срок уже наступил. Для строк источников и бокового меню. */
+export function timeUntil(iso) {
+  return iso ? countdown(iso) : "";
+}
+
+/* Как часто проверяется источник: «раз в час», «каждые 6 часов», «каждые 30 минут» или cron. */
+export function scheduleSummary(source) {
+  if (!source.schedule_enabled) return t("source.scheduleOff");
+  if (source.schedule_mode === "cron") return t("source.cronSummary", { expr: source.cron_expression });
+  const minutes = Number(source.interval_minutes) || 0;
+  if (minutes === 1) return t("source.everyMinute");
+  if (minutes === 60) return t("source.hourly");
+  if (minutes === 1440) return t("source.daily");
+  if (minutes % 60 === 0) return t("source.everyHours", { count: minutes / 60 });
+  return t("source.everyMinutes", { count: minutes });
+}
+
 export function nextLabel(remote) {
   if (!remote || remote.running) return t("next.running");
-  if (!remote.scheduler_enabled || !remote.next_run_at) return t("next.off");
+  if (!remote.next_run_at) return t("next.off");
   const value = countdown(remote.next_run_at);
   return value ? t("next.in", { time: value }) : t("next.now");
 }

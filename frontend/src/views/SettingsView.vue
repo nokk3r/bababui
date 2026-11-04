@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import OptionSelect from "../components/OptionSelect.vue";
 import SwitchField from "../components/SwitchField.vue";
 import { api } from "../lib/api.js";
+import { formatBytes } from "../lib/format.js";
 import { changeLang, i18n, LANGUAGES, t } from "../lib/i18n.js";
 import { setTheme, theme, THEMES } from "../lib/theme.js";
 import { setSpeedUnit, SPEED_UNITS, units } from "../lib/units.js";
@@ -17,32 +17,44 @@ import { pollSoon, reportError, state, toast } from "../store.js";
 
 const PANES = [
   ["general", "settings.general.title"],
-  ["subscription", "settings.subscription.title"],
-  ["schedule", "settings.schedule.title"],
   ["check", "settings.check.title"],
 ];
 
 const languageOptions = Object.entries(LANGUAGES);
 const themeOptions = computed(() => THEMES.map((mode) => [mode, t(`theme.${mode}`)]));
 const unitOptions = computed(() => Object.keys(SPEED_UNITS).map((unit) => [unit, t(`speedUnit.${unit}`)]));
-const modeOptions = computed(() => [
-  ["interval", t("settings.schedule.modeInterval")],
-  ["cron", t("settings.schedule.modeCron")],
-]);
-/* Cron считается в поясе браузера: «в 9:30» для человека значит его 9:30, а не UTC контейнера. */
-const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+/* Сколько сейчас хранится истории: перечитывается при каждом открытии настроек,
+   потому что история растёт с каждой проверкой и чистится сроком хранения. */
+const stats = ref(null);
+
+async function loadStats() {
+  try {
+    stats.value = await api("/api/history/stats");
+  } catch {
+    /* без цифры поле срока хранения всё равно работает */
+  }
+}
+
+watch(() => state.view, (view) => {
+  if (view === "settings") loadStats();
+}, { immediate: true });
+
+/* Важно одно — сколько места занято: подпись короткая, число выделено. */
+const historySize = computed(() => {
+  const value = stats.value;
+  if (!value) return null;
+  if (!value.results) return { label: t("settings.general.historyEmpty"), size: "" };
+  return {
+    label: t(value.whole_database ? "settings.general.databaseTakes" : "settings.general.historyTakes"),
+    size: formatBytes(value.bytes),
+  };
+});
 
 const form = reactive({
-  subscription_url: "",
-  subscription_insecure: false,
-  refresh_before_run: false,
   tls_insecure_if_no_sni: false,
-  schedule_mode: "interval",
-  interval_minutes: "",
-  cron_expression: "",
   concurrency: "",
   retention_days: "",
-  scheduler_enabled: false,
   measure_download: false,
   measure_upload: false,
 });
@@ -65,33 +77,18 @@ watch(() => state.settings, (settings) => {
   if (settings && !dirty.value) fill(settings);
 });
 
-const estimate = computed(() => {
-  const enabled = state.nodes.filter((node) => node.active && node.supported && node.enabled).length;
-  if (!enabled) return t("estimate.noNodes");
-  const parts = [t("estimate.latency")];
-  if (form.measure_download) parts.push(t("estimate.download"));
-  if (form.measure_upload) parts.push(t("estimate.upload"));
-  return t("estimate.measuring", { parts: parts.join(t("estimate.listSeparator")) });
-});
-
 async function save() {
   try {
     const saved = await api("/api/settings", {
       method: "PUT",
       json: {
         ...form,
-        subscription_url: String(form.subscription_url).trim(),
-        interval_minutes: Number(form.interval_minutes),
-        cron_expression: String(form.cron_expression).trim(),
-        schedule_timezone: browserZone,
         concurrency: Number(form.concurrency),
         retention_days: Number(form.retention_days),
       },
     });
     fill(saved);
     state.settings = saved;
-    state.remote.scheduler_enabled = saved.scheduler_enabled;
-    state.remote.interval_minutes = saved.interval_minutes;
     pollSoon();
     toast(t("toast.settingsSaved"));
   } catch (error) {
@@ -109,7 +106,6 @@ async function save() {
         </TabsList>
 
         <TabsContent value="general" class="mt-4 flex flex-col gap-4">
-          <p class="text-sm text-muted-foreground">{{ t("settings.general.lead") }}</p>
           <div class="flex flex-col gap-4">
             <div class="flex flex-col gap-2">
               <Label for="language">{{ t("settings.general.language") }}</Label>
@@ -125,60 +121,24 @@ async function save() {
             </div>
             <div class="flex flex-col gap-2">
               <Label for="retention_days">{{ t("settings.general.retention") }}</Label>
-              <Input id="retention_days" v-model="form.retention_days" type="number" min="1" max="3650" step="1" />
+              <Input id="retention_days" v-model="form.retention_days" type="number" min="1" max="3650" step="1" aria-describedby="history-size" />
+              <p v-if="historySize" id="history-size" class="text-sm text-muted-foreground">
+                {{ historySize.label }}<strong v-if="historySize.size" class="ml-1 font-medium text-foreground tabular">{{ historySize.size }}</strong>
+              </p>
             </div>
           </div>
         </TabsContent>
 
-        <TabsContent value="subscription" class="mt-4 flex flex-col gap-4">
-          <p class="text-sm text-muted-foreground">{{ t("settings.subscription.lead") }}</p>
-          <div class="flex flex-col gap-2">
-            <Label for="subscription_url">{{ t("settings.subscription.links") }}</Label>
-            <Textarea id="subscription_url" v-model="form.subscription_url" rows="5" spellcheck="false" class="font-mono text-xs" />
-          </div>
-          <div class="divide-y">
-            <SwitchField v-model="form.subscription_insecure" :label="t('settings.subscription.insecure')" />
-            <SwitchField v-model="form.refresh_before_run" :label="t('settings.subscription.refreshBeforeRun')" />
-            <SwitchField v-model="form.tls_insecure_if_no_sni" :label="t('settings.subscription.insecureNoSni')" />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="schedule" class="mt-4 flex flex-col gap-4">
-          <p class="text-sm text-muted-foreground">{{ t("settings.schedule.lead") }}</p>
-          <SwitchField v-model="form.scheduler_enabled" :label="t('settings.schedule.enabled')" />
-          <div class="flex flex-col gap-2">
-            <Label for="schedule_mode">{{ t("settings.schedule.mode") }}</Label>
-            <OptionSelect id="schedule_mode" v-model="form.schedule_mode" :options="modeOptions" :disabled="!form.scheduler_enabled" />
-          </div>
-          <div v-if="form.schedule_mode === 'cron'" class="flex flex-col gap-2">
-            <Label for="cron_expression">{{ t("settings.schedule.cron") }}</Label>
-            <Input
-              id="cron_expression"
-              v-model="form.cron_expression"
-              class="font-mono"
-              spellcheck="false"
-              autocomplete="off"
-              placeholder="0 */2 * * *"
-              aria-describedby="cron-hint"
-              :disabled="!form.scheduler_enabled"
-            />
-            <p id="cron-hint" class="text-sm text-muted-foreground">{{ t("settings.schedule.cronHint", { zone: browserZone }) }}</p>
-          </div>
-          <div v-else class="flex flex-col gap-2">
-            <Label for="interval_minutes">{{ t("settings.schedule.interval") }}</Label>
-            <Input id="interval_minutes" v-model="form.interval_minutes" type="number" min="1" max="1440" step="1" :disabled="!form.scheduler_enabled" />
-          </div>
-        </TabsContent>
-
         <TabsContent value="check" class="mt-4 flex flex-col gap-4">
-          <p class="text-sm text-muted-foreground">{{ t("settings.check.lead") }}</p>
-          <div>
-            <h2 class="text-base font-semibold">{{ t("settings.check.whatToMeasure") }}</h2>
-            <p class="mt-1 text-sm text-muted-foreground">{{ t("settings.check.note") }}</p>
-          </div>
+          <h2 class="text-base font-semibold">{{ t("settings.check.whatToMeasure") }}</h2>
           <div class="divide-y">
             <SwitchField v-model="form.measure_download" :label="t('settings.check.measureDownload')" />
             <SwitchField v-model="form.measure_upload" :label="t('settings.check.measureUpload')" />
+            <SwitchField
+              v-model="form.tls_insecure_if_no_sni"
+              :label="t('settings.check.insecureNoSni')"
+              :hint="t('settings.check.insecureNoSniHint')"
+            />
           </div>
           <div class="flex flex-col gap-2">
             <div class="flex items-center gap-1.5">
@@ -198,7 +158,6 @@ async function save() {
             </div>
             <Input id="concurrency" v-model="form.concurrency" type="number" min="1" max="4" step="1" />
           </div>
-          <p class="rounded-lg border bg-muted px-3 py-2 text-sm text-muted-foreground">{{ estimate }}</p>
         </TabsContent>
       </Tabs>
 

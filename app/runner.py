@@ -10,7 +10,6 @@ from app import db, subscription
 from app.engines import CancelToken, ProbeResult, Stage, test_node
 from app.i18n import msg, render
 from app.parser import parse_link
-from app.subscription import SubscriptionError
 
 logger = logging.getLogger("checker.runner")
 
@@ -30,6 +29,7 @@ class Runner:
         trigger: str,
         node_ids: list[str] | None,
         include_disabled: bool,
+        source_ids: list[int] | None = None,
     ) -> bool:
         try:
             await asyncio.wait_for(self._lock.acquire(), 0.05)
@@ -51,12 +51,12 @@ class Runner:
             "started_at": db.utcnow(),
         }
         self._task = asyncio.create_task(
-            self._execute_and_release(trigger, node_ids, include_disabled)
+            self._execute_and_release(trigger, node_ids, include_disabled, source_ids)
         )
         return True
 
-    async def begin_and_wait(self, trigger: str) -> bool:
-        started = await self.begin(trigger, None, False)
+    async def begin_and_wait(self, trigger: str, source_ids: list[int] | None = None) -> bool:
+        started = await self.begin(trigger, None, False, source_ids)
         if not started or self._task is None:
             return False
         await self._task
@@ -74,9 +74,10 @@ class Runner:
         trigger: str,
         node_ids: list[str] | None,
         include_disabled: bool,
+        source_ids: list[int] | None = None,
     ) -> None:
         try:
-            await self._execute(trigger, node_ids, include_disabled)
+            await self._execute(trigger, node_ids, include_disabled, source_ids)
         except Exception:
             logger.exception("run failed")
         finally:
@@ -89,23 +90,27 @@ class Runner:
         trigger: str,
         node_ids: list[str] | None,
         include_disabled: bool,
+        source_ids: list[int] | None = None,
     ) -> None:
         token = CancelToken()
         self.cancel_token = token
         settings = db.public_settings()
+        # Проверка по расписанию касается только своих источников; ручная — всех.
+        scope = [source for source in db.list_sources() if source_ids is None or source["id"] in source_ids]
+        stale = [source["id"] for source in scope if source["kind"] == "subscription" and source["refresh_before_run"]]
         refresh_error = ""
-        if settings["refresh_before_run"]:
+        if stale:
             self._phase("refreshing")
-            try:
-                await asyncio.to_thread(subscription.refresh)
-            except SubscriptionError as exc:
-                refresh_error = str(exc)
+            errors = await asyncio.to_thread(subscription.refresh_many, stale)
+            # Часть подписок не обновилась: проверка идёт по прежним узлам, а причина видна в прогоне.
+            refresh_error = "; ".join(errors)
+            if refresh_error:
                 logger.warning("subscription refresh failed: %s", render(refresh_error))
-            settings = db.public_settings()
         if token.cancelled:
             return
-        rows = await asyncio.to_thread(db.nodes_for_run, node_ids, include_disabled)
-        run_id = db.create_run(trigger, len(rows))
+        rows = await asyncio.to_thread(db.nodes_for_run, node_ids, include_disabled, source_ids)
+        labels = [subscription.source_label(source) for source in scope] if source_ids is not None else None
+        run_id = db.create_run(trigger, len(rows), labels)
         self.progress = {
             "running": True,
             "run_id": run_id,

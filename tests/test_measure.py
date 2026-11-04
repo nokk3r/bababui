@@ -122,7 +122,7 @@ class AliveColumnTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, mock.patch.object(db, "DATA_DIR", Path(folder)):
             db.init_db()
             node = parse_link(f"vless://{UUID}@1.1.1.1:443?security=tls&sni=a.com#x")
-            db.sync_nodes([node])
+            db.sync_nodes(1, [node])
             db.insert_result(db.create_run("manual", 1), node.id, ProbeResult(error="сбой", alive=True))
             self.assertIs(db.list_nodes()[0]["last_alive"], True)
 

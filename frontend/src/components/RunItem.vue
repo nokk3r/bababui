@@ -1,6 +1,6 @@
 <script setup>
 import { ChevronDownIcon, Trash2Icon } from "@lucide/vue";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +32,7 @@ const STATUS_COLORS = {
 const props = defineProps({ run: { type: Object, required: true } });
 const open = ref(false);
 const rows = ref([]);
+const runSources = computed(() => (props.run.sources || []).map(tMsg).join(", "));
 
 async function toggle() {
   if (open.value) {
@@ -71,7 +72,8 @@ async function remove() {
         <span class="text-muted-foreground">{{ t(run.trigger === "schedule" ? "history.scheduled" : "history.manual") }}</span>
         <ChevronDownIcon class="col-start-3 row-start-1 size-4 text-muted-foreground transition-transform md:col-start-5" :class="{ 'rotate-180': open }" aria-hidden="true" />
         <span :class="STATUS_COLORS[run.status]">{{ statusLabel(run.status) }}</span>
-        <span class="min-w-0 break-words">{{ t("history.summary", { ok: run.ok_count, fail: run.fail_count }) }}{{ run.error ? ` · ${tMsg(run.error)}` : "" }}</span>
+        <!-- У проверки по расписанию видно, чьё это было расписание: у каждого источника оно своё. -->
+        <span class="min-w-0 break-words"><span v-if="runSources" class="font-medium">{{ runSources }} · </span>{{ t("history.summary", { ok: run.ok_count, fail: run.fail_count }) }}{{ run.error ? ` · ${tMsg(run.error)}` : "" }}</span>
       </button>
       <!-- Отдельно от кнопки раскрытия: кнопка внутри кнопки недопустима. -->
       <AlertDialog>

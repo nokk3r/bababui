@@ -4,7 +4,27 @@
 
 ### RU
 
+- Можно добавить несколько подписок и свои группы узлов. На экране «Подписки» они идут списком, под каждой — её узлы.
+- У каждой подписки и группы своё расписание; вкладка «Расписание» в настройках убрана.
+- Подписки обновляются независимо: если одна не загрузилась, остальные работают, а ошибка видна в её строке.
+- Проверку можно запустить для всего сразу, для одной подписки или группы и для отдельного узла. Кнопка «Проверить сейчас» ушла из шапки, «Остановить» — в панели прогресса.
+- При обновлении всё переносится само: ссылки становятся подписками, прежнее расписание — расписанием каждой из них.
+- Колонка «Последние проверки» на узком экране сужается, а не обрезается.
+- Интерфейс стал чище: компактнее карточка «Работают», подсказки одного вида и только там, где нужны, меньше пояснений в настройках, в боковом меню — только версия bababui.
+- В настройках видно, сколько места занимает история; переключатель про SNI переехал во вкладку «Замер».
+- API: подписки и группы управляются через `/api/sources`; `/api/subscription/refresh` и `/api/scheduler` убраны.
+
 ### EN
+
+- You can add several subscriptions and your own node groups. The Subscriptions screen lists them, each with its nodes underneath.
+- Each subscription and group has its own schedule; the Schedule tab is gone from settings.
+- Subscriptions refresh independently: if one fails to load, the rest keep working and the error shows in its row.
+- Checks can run for everything, for one subscription or group, or for a single node. Check now is gone from the header, and Stop lives in the progress panel.
+- Upgrading carries everything over: links become subscriptions, and the old schedule becomes each one's schedule.
+- The Recent checks column narrows on small screens instead of getting cut off.
+- A cleaner interface: a more compact Working card, consistent hints only where needed, fewer explanations in settings, and only the bababui version in the sidebar.
+- Settings show how much space history takes; the SNI switch moved to the Measurement tab.
+- API: subscriptions and groups are managed through `/api/sources`; `/api/subscription/refresh` and `/api/scheduler` are gone.
 
 ## 0.4.3 — 2026-11-03
 

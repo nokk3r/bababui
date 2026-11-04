@@ -46,8 +46,7 @@ async function clearHistory() {
 
 <template>
   <section class="flex flex-col gap-4">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <p class="text-sm text-muted-foreground">{{ t("history.lead") }}</p>
+    <div class="flex flex-wrap items-center gap-3">
       <div class="flex flex-wrap gap-2">
         <Button variant="outline" size="lg" @click="exportCsv">
           <DownloadIcon aria-hidden="true" />{{ t("action.downloadCsv") }}
