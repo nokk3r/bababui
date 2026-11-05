@@ -17,7 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api } from "../lib/api.js";
 import { formatMs, formatTime, resultDot, statusLabel } from "../lib/format.js";
 import { t, tMsg } from "../lib/i18n.js";
-import { reloadAll, reportError, toast } from "../store.js";
+import { openNode, reloadAll, reportError, toast } from "../store.js";
 import NodeName from "./NodeName.vue";
 import ProtoBadge from "./ProtoBadge.vue";
 import SpeedValue from "./SpeedValue.vue";
@@ -112,12 +112,19 @@ async function remove() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow v-for="(row, index) in rows" :key="index">
+          <TableRow
+            v-for="(row, index) in rows"
+            :key="index"
+            class="cursor-pointer select-none hover:bg-muted"
+            @click="openNode(row.node_id)"
+          >
             <TableCell class="max-w-64 px-3">
               <NodeName
                 :dot="resultDot(row.ok, row.alive)"
                 :name="row.name"
                 :sub="row.tested_at ? formatTime(row.tested_at) : ''"
+                interactive
+                @open="openNode(row.node_id)"
               />
             </TableCell>
             <TableCell class="px-3"><ProtoBadge :protocol="row.protocol" /></TableCell>
